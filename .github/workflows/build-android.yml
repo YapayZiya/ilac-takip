@@ -60,6 +60,16 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Inject Android Permissions
+        run: |
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if ! grep -q "SCHEDULE_EXACT_ALARM" "$MANIFEST"; then
+            sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />|' "$MANIFEST"
+            echo "SCHEDULE_EXACT_ALARM eklendi."
+          else
+            echo "SCHEDULE_EXACT_ALARM zaten mevcut."
+          fi
+
       - name: Create local.properties
         run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 

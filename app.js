@@ -10,6 +10,8 @@
 // Capacitor paketleri (esbuild ile www/app.bundle.js icine derlenir)
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 
 (() => {
   'use strict';
@@ -161,7 +163,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
   async function notiPlanla() {
     if (!(isNative && nativeAktif)) return;
     try {
-      try { await LocalNotifications.cancelAll(); } catch {}
+      await LocalNotifications.cancelAll();
       const meds = getMeds();
       const ayar = getAyar();
       const done = getDone();
@@ -171,16 +173,15 @@ import { LocalNotifications } from '@capacitor/local-notifications';
         for (const time of m.times) {
           const t0 = parseTime(time);
           const todayTaken = !!done[`${m.id}|${todayStr()}|${time}`];
-          // Sıradaki gerçekleşme: bugün alınmadıysa ve henuz gelemede => bugun, aksi halde yarin
           const hedef = (todayTaken || t0.getTime() <= Date.now())
             ? new Date(t0.getTime() + 86400000)
             : t0;
           let fireAt = hedef.getTime() - ayar.onerakDk * 60000;
-          if (fireAt < Date.now()) fireAt = Date.now(); // önceden-uyari saati gecmise dustuysa simdi
-          console.log('Planlanan Bildirim:', m.ad, '@', time, '→', new Date(fireAt).toLocaleString('tr-TR'), `(delayMs=${Math.max(0, Math.round(fireAt - Date.now()))}`);
+          if (fireAt < Date.now()) fireAt = Date.now();
           const key = `${m.id}|${dateStr(hedef)}|${time}`;
           const nid = notiIdForKey(key);
           map[nid] = key;
+          console.log('PLANLANAN ALARM:', { id: nid, ilac: m.ad, saat: time, hedef: hedef.toLocaleString('tr-TR'), fireAt: new Date(fireAt).toLocaleString('tr-TR'), ISO: new Date(fireAt).toISOString() });
           list.push({
             id: nid,
             title: m.ad,
@@ -188,9 +189,10 @@ import { LocalNotifications } from '@capacitor/local-notifications';
             smallIcon: 'ic_stat_notify',
             color: '#0d9488',
             category: 'reminder',
-            importance: 4,   // 1-5, 4 = ses + titrese sahip uyari
+            importance: 4,
             priority: 3,
-            delayMs: Math.max(0, Math.round(fireAt - Date.now())),
+            allowWhileIdle: true,
+            schedule: { at: new Date(fireAt) },
             actions: [{ id: 'taken', type: 'button', title: 'Alındı ✓' }],
           });
         }
@@ -201,28 +203,33 @@ import { LocalNotifications } from '@capacitor/local-notifications';
       Object.assign(prev, map);
       writeJSON(NOTI_KEY, prev);
       if (list.length) await LocalNotifications.schedule({ notifications: list });
+      console.log('notiPlanla tamam: toplam', list.length, 'bildirim planlandı.');
     } catch (e) {
       console.warn('Bildirimler planlanamadı:', e);
+      toast('Bildirimler planlanamadı. Android Ayarlar → Uygulamalar → Tam Zamanlı Alarm iznini kontrol edin.');
     }
   }
 
   async function testNotiGonder() {
     if (!(isNative && nativeAktif)) { toast('Native bildirim açık değil. Önce zil ikona dokunup izin verin.'); return; }
     try {
+      const at = new Date(Date.now() + 5000);
+      console.log('TEST BİLDİRİMİ planlandı, at:', at.toISOString());
       await LocalNotifications.schedule({
         notifications: [{
           id: 999999,
           title: 'Test Bildirimi',
-          body: 'Bildirim sistemi çalışıyor! Bu bir test bildirimi.',
+          body: 'Bildirim sistemi çalışıyor! Bu bir test.',
           smallIcon: 'ic_stat_notify',
           color: '#0d9488',
-          delayMs: 5000,
+          allowWhileIdle: true,
+          schedule: { at },
         }]
       });
       toast('5 sn içinde test bildirimi gelecek.');
     } catch (e) {
       console.warn('Test bildirimi gönderilemedi:', e);
-      toast('Test bildirimi gönderilemedi: ' + e.message);
+      toast('Test bildirimi gönderilemedi: ' + (e.message || e));
     }
   }
 
@@ -461,7 +468,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
      ========================================================== */
   const saatKutu = $('#time-inputs');
   const VARSAYILAN_SAT = ['09:00', '14:00', '20:00', '08:00', '12:00', '18:00', '21:00', '07:00'];
-  let ilacKaz = 2;
+  let ilacKaz = 1;
   let editingId = null;
   let pinHedef = null;
   let yeniHastaId = null;
@@ -495,13 +502,13 @@ import { LocalNotifications } from '@capacitor/local-notifications';
     document.body.classList.remove('no-scroll');
   }
   const baslaLabel = () => { $('#panel-title').textContent = 'Yeni İlaç'; $('#panel-desc').textContent = 'İlaç bilginizi girin.'; $('#save-label').textContent = 'Kaydet'; };
-  function panelAcarYeni() { editingId = null; $('#med-form').reset(); baslaLabel(); saatlariOlustur(2); paneliAcar(); }
+  function panelAcarYeni() { editingId = null; $('#med-form').reset(); baslaLabel(); saatlariOlustur(1); paneliAcar(); }
   function panelAcDuzenle(med) {
     editingId = med.id; $('#ilac-ad').value = med.ad; $('#ilac-doz').value = med.doz || '';
     $('#panel-title').textContent = 'İlacı Düzenle'; $('#panel-desc').textContent = 'Bilgileri güncelleyin.'; $('#save-label').textContent = 'Güncelle';
     saatlariOlustur(med.times.length, med.times); paneliAcar();
   }
-  function paneliTemizleKapat() { paneliKapa(); editingId = null; $('#med-form').reset(); baslaLabel(); saatlariOlustur(2); }
+  function paneliTemizleKapat() { paneliKapa(); editingId = null; $('#med-form').reset(); baslaLabel(); saatlariOlustur(1); }
 
   function ilacKaydetForm() {
     const ad = $('#ilac-ad').value.trim();
@@ -642,16 +649,24 @@ import { LocalNotifications } from '@capacitor/local-notifications';
       disariTarih: new Date().toISOString(),
     };
     const jsonString = JSON.stringify(veri, null, 2);
-    const file = new File([jsonString], `ilac-takip-${slug(aktifHasta.ad)}-${todayStr()}.json`, { type: 'application/json' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    const dosyaAdi = `ilac-takip-${slug(aktifHasta.ad)}-${todayStr()}.json`;
+    if (isNative) {
       try {
-        await navigator.share({ files: [file], title: 'İlaç Takip Yedeği' });
-        toast('Yedek paylaşıldı.');
+        await Filesystem.writeFile({ path: dosyaAdi, data: jsonString, directory: Directory.Documents, encoding: Encoding.UTF8 });
+        const { uri } = await Filesystem.getUri({ path: dosyaAdi, directory: Directory.Documents });
+        console.log('Yedek dosyası yazıldı, share URI:', uri);
+        await Share.share({ files: [uri], title: 'İlaç Takip Yedeği' });
+        toast('Yedek paylaşıldı. Documents klasöründe de kayıtlı.');
       } catch (e) {
-        if (e.name !== 'AbortError') toast('Paylaşım başarısız.');
+        console.warn('Dosya paylaşımı başarısız:', e);
+        toast('Paylaşım başarısız: ' + (e.message || e));
       }
     } else {
-      alert('Paylaşım menüsü desteklenmiyor.');
+      const file = new File([jsonString], dosyaAdi, { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: 'İlaç Takip Yedeği' }); toast('Yedek paylaşıldı.'); }
+        catch (e) { if (e.name !== 'AbortError') toast('Paylaşım başarısız.'); }
+      } else { alert('Paylaşım menüsü desteklenmiyor.'); }
     }
   }
   function veriIcce(file) {
