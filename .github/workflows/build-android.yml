@@ -1,105 +1,76 @@
-name: Build Android APK
+name: Derle + APK (Linux)
 
-# Calistirmak:
-#   1) Otomatik  : main/master'a push yapinca
-#   2) Manuel    : GitHub -> "Actions" -> "Build Android APK" -> "Run workflow"
 on:
   push:
-    branches: ["main", "master"]
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
-
-permissions:
-  contents: read
-
-# Ayni branch icin yenisini calistirirken eski (devam eden) calismayi iptal et
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build:
-    name: Derle + APK (Linux)
     runs-on: ubuntu-latest
 
     steps:
-      # ---------- 1) Kod ----------
-      - name: Checkout
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # ---------- 2) Node.js 20 (npm cache: package-lock.json kullanimda) ----------
-      - name: Kur Node.js 20
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+          cache: 'npm'
 
-      # ---------- 3) Java JDK 17 (AGP 8.x / Capacitor 6 gerektirir) ----------
-      - name: Kur Java 17 (Temurin)
+      - name: Setup Java JDK
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: "17"
+          distribution: 'temurin'
+          java-version: '17'
 
-      # ---------- 4) Android SDK (platform 34 + 35, build-tools) ----------
-      - name: Kur Android SDK
+      - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          what: platform-tools platforms;android-34 platforms;android-35 build-tools;34.0.0 build-tools;35.0.0
+          packages: 'platforms;android-34 platforms;android-35 build-tools;34.0.0 build-tools;35.0.0'
+          accept-android-sdk-licenses: true
 
-      # ---------- 4b) SDK lisanslarini kabul et (guvenlik) ----------
-      - name: Kabul et SDK lisanslarini
-        run: |
-          sdkmanager --version
-          yes | sdkmanager --licenses || true
+      - name: Force Accept SDK Licenses
+        run: yes | sdkmanager --licenses || true
 
-      # ---------- 5) Gradle bagimliligi cache'i (ikinci calisma icinden beri hizli) ----------
-      - name: Gradle cache
+      - name: Cache Gradle
         uses: actions/cache@v4
         with:
           path: |
-            $HOME/.gradle/caches
-            $HOME/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*') }}
+          restore-keys: gradle-${{ runner.os }}-
 
-      # ---------- 6) Bağımlılıkları kur ----------
-      - name: npm install
+      - name: Install Node Dependencies
         run: npm install
 
-      # ---------- 7) Web'i derle (esbuild -> www/app.bundle.js) ----------
-      - name: Web'i derle
+      - name: Build Web Assets
         run: npm run build
 
-      # ---------- 8) Android platformu + native senkron ----------
-      # Not: android/ klasoru .gitignore'de oldugu icin repo'da YOK; burada yeniden uretilir.
-      - name: cap add android
+      - name: Add Android Platform
         run: npx cap add android
 
-      - name: Bildirim ikonunu native res'e kopyala
+      - name: Copy Android Icon
         run: npm run android:icon
 
-      - name: cap sync android
+      - name: Sync Capacitor
         run: npx cap sync android
 
-      # ---------- 9) SDK konumunu Gradle'e yaz (guvenilir yontem) ----------
-      - name: Belirle SDK dizini (local.properties)
-        working-directory: android
-        run: echo "sdk.dir=$(sdkmanager --print-root)" > local.properties
+      - name: Create local.properties
+        run: echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
-      # ---------- 10) Gradle ile DEBUG APK derle ----------
-      # (Debug APK, android/debug imzasi ile gelir; telefona dogrudan kurulabilir.)
-      # Release imzali APK istersen Adim 3'te anlatacağim keystore adimini yap.
-      - name: Gradle assembleDebug
-        working-directory: android
+      - name: Build Debug APK
+        working-directory: ./android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      # ---------- 11) APK'yi GitHub Artifacts'a yukle ----------
-      - name: Yükle APK (Artifact)
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ilac-takip-android-debug-${{ github.run_number }}
+          name: ilac-takip-android-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
