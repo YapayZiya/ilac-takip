@@ -1,0 +1,13 @@
+# node
+node_modules/
+
+# Capacitor native platform (CI'de, cloud build esnasinda uretilir)
+android/
+
+# Derleme artefakti (npm run build ile uretilir)
+www/app.bundle.js
+
+# Cizgi sistemi / loglar
+.DS_Store
+Thumbs.db
+*.log
