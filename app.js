@@ -177,6 +177,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
             : t0;
           let fireAt = hedef.getTime() - ayar.onerakDk * 60000;
           if (fireAt < Date.now()) fireAt = Date.now(); // önceden-uyari saati gecmise dustuysa simdi
+          console.log('Planlanan Bildirim:', m.ad, '@', time, '→', new Date(fireAt).toLocaleString('tr-TR'), `(delayMs=${Math.max(0, Math.round(fireAt - Date.now()))}`);
           const key = `${m.id}|${dateStr(hedef)}|${time}`;
           const nid = notiIdForKey(key);
           map[nid] = key;
@@ -202,6 +203,42 @@ import { LocalNotifications } from '@capacitor/local-notifications';
       if (list.length) await LocalNotifications.schedule({ notifications: list });
     } catch (e) {
       console.warn('Bildirimler planlanamadı:', e);
+    }
+  }
+
+  async function testNotiGonder() {
+    if (!(isNative && nativeAktif)) { toast('Native bildirim açık değil. Önce zil ikona dokunup izin verin.'); return; }
+    try {
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: 999999,
+          title: 'Test Bildirimi',
+          body: 'Bildirim sistemi çalışıyor! Bu bir test bildirimi.',
+          smallIcon: 'ic_stat_notify',
+          color: '#0d9488',
+          delayMs: 5000,
+        }]
+      });
+      toast('5 sn içinde test bildirimi gelecek.');
+    } catch (e) {
+      console.warn('Test bildirimi gönderilemedi:', e);
+      toast('Test bildirimi gönderilemedi: ' + e.message);
+    }
+  }
+
+  async function debugNotiGoster() {
+    if (!(isNative && nativeAktif)) { toast('Native bildirim açık değil.'); return; }
+    try {
+      const { notifications } = await LocalNotifications.getPending();
+      console.log('Bekleyen Bildirimler (getPending):', JSON.stringify(notifications, null, 2));
+      if (!notifications.length) { toast('Android tarafında bekleyen bildirim yok.'); return; }
+      const lines = notifications.map((n, i) =>
+        `${i + 1}. id=${n.id}  "${n.title}"  ${n.body || ''}`
+      );
+      alert(`Android'de bekleyen bildirimler (${notifications.length}):\n\n${lines.join('\n\n')}`);
+    } catch (e) {
+      console.warn('Bekleyen bildirimler alınamadı:', e);
+      toast('Bekleyen bildirimler alınamadı: ' + e.message);
     }
   }
 
@@ -596,14 +633,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
   function loadAyarSec() { const a = getAyar(); $('#set-onerak').value = String(a.onerakDk); $('#set-ertele').value = String(a.erteleDk); }
   function ayarKaydet(k, v) { const a = getAyar(); a[k] = v; saveAyar(aktifPid, a); toast('Ayarlar kaydedildi.'); }
 
-  function indir(ad, icerik) {
-    const blob = new Blob([icerik], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = ad;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-  }
-  function veriDisa() {
+  async function veriDisa() {
     if (!aktifHasta) return;
     const veri = {
       _format: 'ilac-takip-yedek', versiyon: 1,
@@ -611,8 +641,18 @@ import { LocalNotifications } from '@capacitor/local-notifications';
       ayar: getAyar(), ilaclar: getMeds(), alindi: getDone(),
       disariTarih: new Date().toISOString(),
     };
-    indir(`ilac-takip-${slug(aktifHasta.ad)}-${todayStr()}.json`, JSON.stringify(veri, null, 2));
-    toast('Yedek indirildi.');
+    const jsonString = JSON.stringify(veri, null, 2);
+    const file = new File([jsonString], `ilac-takip-${slug(aktifHasta.ad)}-${todayStr()}.json`, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'İlaç Takip Yedeği' });
+        toast('Yedek paylaşıldı.');
+      } catch (e) {
+        if (e.name !== 'AbortError') toast('Paylaşım başarısız.');
+      }
+    } else {
+      alert('Paylaşım menüsü desteklenmiyor.');
+    }
   }
   function veriIcce(file) {
     const fr = new FileReader();
@@ -660,11 +700,13 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 
     // Ayarlar
     $('#ayar-kapa').addEventListener('click', ayarKapa);
-    $('#set-onerak').addEventListener('change', (e) => ayarKaydet('onerakDk', +e.target.value));
+    $('#set-onerak').addEventListener('change', (e) => { ayarKaydet('onerakDk', +e.target.value); notiPlanla(); });
     $('#set-ertele').addEventListener('change', (e) => ayarKaydet('erteleDk', +e.target.value));
     $('#btn-export').addEventListener('click', veriDisa);
     $('#btn-import').addEventListener('click', () => { const f = $('#import-file'); f.value = ''; f.click(); });
     $('#import-file').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) veriIcce(f); });
+    $('#btn-test-noti').addEventListener('click', testNotiGonder);
+    $('#btn-debug-noti').addEventListener('click', debugNotiGoster);
 
     // İlaç paneli
     $('#btn-add').addEventListener('click', panelAcarYeni);
