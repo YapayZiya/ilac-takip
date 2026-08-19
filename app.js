@@ -122,15 +122,28 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       if (!perm || perm.display !== 'granted') perm = await LocalNotifications.requestPermissions();
       nativeAktif = !!(perm && perm.display === 'granted');
       toast(nativeAktif ? 'Arka plan bildirimleri hazır.' : 'Arka plan bildirim izni kapalı.');
-      // Koken cozum: Android 12+ Exact Alarm iznini kontrol et + kazandir.
-      // Bu izni almadan Capacitor alarmi non-exact kurar ve Doze'da erteler.
       if (nativeAktif) {
+        await tamBildirimIzniKontrol();
         await exactAlarmKazandir();
+        await pilOptimizasyonKontrol();
         App.addListener('resume', onAppResume);
       }
     } catch (e) {
       console.warn('LocalNotifications hazırlanamadı:', e);
       nativeAktif = false;
+    }
+  }
+
+  async function pilOptimizasyonKontrol() {
+    if (!isNative || !nativeAktif) return;
+    try {
+      const res = await ExactAlarm.requestIgnoreBatteryOptimizations();
+      if (res && res.opened) {
+        console.log('Pil optimizasyonu ayarlari acildi, kullaniciyi bilgilendir.');
+        toast('Pil optimizasyonunu kapatmak için ayarlardan "İzin ver" deyin.');
+      }
+    } catch (e) {
+      console.warn('Pil optimizasyonu istenemedi:', e);
     }
   }
 
@@ -166,12 +179,27 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     toast('Alındı olarak işaretlendi.');
   }
 
+  // Android 13+ (API 33) POST_NOTIFICATIONS izni kontrol et.
+  async function tamBildirimIzniKontrol() {
+    if (!isNative || !nativeAktif) return;
+    let r;
+    try { r = await ExactAlarm.canSchedule(); } catch { return; }
+    if (r && r.needsNotifyPermission) {
+      console.warn('🚫 POST_NOTIFICATIONS izni eksik — Android 13+ cihazlarda bildirimler CALISMAZ.');
+      toast('⚠ Bildirim izni gerekli. Lütfen onaylayın.');
+      try { await ExactAlarm.requestNotifyPermission(); } catch (e) { console.warn('POST_NOTIFICATIONS istenemedi:', e); }
+    } else if (r && r.canNotify) {
+      console.log('✅ POST_NOTIFICATIONS izni OK.');
+    }
+  }
+
   // KOKEN COZUM — Android 12+ (API 31) Exact Alarm izni.
   // Capacitor, canScheduleExactAlasks()==false ise alarmi NON-EXACT
   // (setAndAllowWhileIdle) kurar; bu, Doze/pil-tasarrufunda ERTELENIR ve
   // saat gelince CALMAZ. Buradan CustomPlugin ile:
   //   1) Gercek AlarmManager.canScheduleExactAlams() degerini al
   //   2) Izin yoksa kullaniciyi DOGRU ayar sayfasina gonder (ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+  //   3) Android 13+ POST_NOTIFICATIONS iznini kontrol et + iste
   // Kullanici "Izinle" deyip geri donunce onAppResume() alarmlari EXACT
   // olarak yeniden planlar.
   async function exactAlarmKazandir() {
@@ -183,7 +211,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       console.warn('ExactAlarm plugin cagrilirken hata (plugin yok mu?):', e);
       return;
     }
-    if (!r || r.canSchedule) {
+    if (r && r.canSchedule) {
       console.log('✅ Exact Alarm izni OK (canScheduleExactAlams=true) → alarmlar EXACT kurulacak.');
       return;
     }
@@ -211,6 +239,9 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       }
     } else if (r && r.exactAlarmRequired) {
       console.warn('⚠ Exact Alarm izni hâlâ eksik. Ayarlar → Uygulamalar → İlaç Takip → "Tam zamanlı alarm".');
+    }
+    if (r && r.needsNotifyPermission) {
+      console.warn('⚠ POST_NOTIFICATIONS izni hâlâ eksik. Ayarlar → Uygulamalar → İlaç Takip → izni açın.');
     }
   }
 
@@ -322,6 +353,34 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       console.warn('Bekleyen bildirimler alınamadı:', e);
       toast('Bekleyen bildirimler alınamadı: ' + e.message);
     }
+  }
+
+  async function debugNotiDurum() {
+    const satir = [];
+    satir.push(`isNative: ${isNative}`);
+    satir.push(`nativeAktif: ${nativeAktif}`);
+    if (isNative) {
+      try {
+        const perm = await LocalNotifications.checkPermissions();
+        satir.push(`LocalNotifications.display: ${perm?.display}`);
+        const r = await ExactAlarm.canSchedule();
+        satir.push(`ExactAlarm.canSchedule: ${r?.canSchedule}`);
+        satir.push(`ExactAlarm.needsPermission: ${r?.needsPermission}`);
+        satir.push(`ExactAlarm.exactAlarmRequired: ${r?.exactAlarmRequired}`);
+        satir.push(`ExactAlarm.canNotify: ${r?.canNotify}`);
+        satir.push(`ExactAlarm.needsNotifyPermission: ${r?.needsNotifyPermission}`);
+      } catch (e) {
+        satir.push(`Plugin hatasi: ${e.message || e}`);
+      }
+    }
+    const { notifications } = await LocalNotifications.getPending().catch(() => ({ notifications: [] }));
+    satir.push(`Bekleyen bildirim: ${notifications.length}`);
+    satir.push(`Aktif hasta: ${aktifPid || 'yok'}`);
+    satir.push(`Aktif hasta ad: ${aktifHasta?.ad || 'yok'}`);
+    satir.push(`İlaç sayisi: ${getMeds().length}`);
+    satir.push(`Alinan kayit: ${Object.keys(getDone()).length}`);
+    console.log('🔍 BILDIRIM TANILAMA:\n' + satir.join('\n'));
+    alert('Tanılama:\n\n' + satir.join('\n'));
   }
 
   function listeyiCiz() {
@@ -797,6 +856,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     $('#import-file').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) veriIcce(f); });
     $('#btn-test-noti').addEventListener('click', testNotiGonder);
     $('#btn-debug-noti').addEventListener('click', debugNotiGoster);
+    $('#btn-debug-durum').addEventListener('click', debugNotiDurum);
 
     // İlaç paneli
     $('#btn-add').addEventListener('click', panelAcarYeni);

@@ -52,7 +52,12 @@ jobs:
         run: npm run build
 
       - name: Add Android Platform
-        run: npx cap add android
+        run: |
+          if [ ! -f "android/app/src/main/AndroidManifest.xml" ]; then
+            npx cap add android
+          else
+            echo "Android platform zaten mevcut, atlaniyor."
+          fi
 
       - name: Copy Android Icon
         run: npm run android:icon
@@ -63,11 +68,27 @@ jobs:
       - name: Inject Android Permissions
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "AndroidManifest.xml bulunamadi."
+            exit 1
+          fi
           if ! grep -q "SCHEDULE_EXACT_ALARM" "$MANIFEST"; then
             sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />|' "$MANIFEST"
             echo "SCHEDULE_EXACT_ALARM eklendi."
           else
             echo "SCHEDULE_EXACT_ALARM zaten mevcut."
+          fi
+          if ! grep -q "POST_NOTIFICATIONS" "$MANIFEST"; then
+            sed -i 's|<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />|<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />|' "$MANIFEST"
+            echo "POST_NOTIFICATIONS eklendi."
+          else
+            echo "POST_NOTIFICATIONS zaten mevcut."
+          fi
+          if ! grep -q "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" "$MANIFEST"; then
+            sed -i 's|<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />|<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />|' "$MANIFEST"
+            echo "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS eklendi."
+          else
+            echo "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS zaten mevcut."
           fi
 
       - name: Create local.properties
