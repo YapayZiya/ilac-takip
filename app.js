@@ -115,6 +115,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   let nativeAktif = false;            // LocalNotifications icin izin alindi mi
 
   async function setupNative() {
+    console.log('🔔 setupNative() BASLADI');
     if (!isNative) return;
     try {
       LocalNotifications.addListener('localNotificationsActionPerformed', onNotiAction);
@@ -126,6 +127,10 @@ import { ExactAlarm } from '@ilac/exact-alarm';
         await tamBildirimIzniKontrol();
         await exactAlarmKazandir();
         await pilOptimizasyonKontrol();
+        if (aktifPid) {
+          console.log('🔔 setupNative sonrasi notiPlanla() cagriliyor...');
+          await notiPlanla();
+        }
         App.addListener('resume', onAppResume);
       }
     } catch (e) {
@@ -250,6 +255,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   // KOSEN KURALLAR: ISO-8601 string at, allowWhileIdle:true, benzersiz int id,
   // agresif debug log + exact-alarm hatasi tespiti.
   async function notiPlanla() {
+    console.log('🔔 notiPlanla() BASLADI - isNative:', isNative, 'nativeAktif:', nativeAktif, 'aktifPid:', aktifPid);
     if (!(isNative && nativeAktif)) {
       console.log('notiPlanla atlandi: native=', isNative, 'nativeAktif=', nativeAktif);
       return;
@@ -788,16 +794,17 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     else { $('#pin-hata').classList.remove('hidden'); $('#pin-in').value = ''; $('#pin-in').focus(); }
   }
   function hastaGir(pid, opts = {}) {
+    console.log('🔔 hastaGir() BASLADI - pid:', pid, 'aktifPid_once:', aktifPid);
     const h = getHastalar().find((x) => x.id === pid); if (!h) return;
     if (h.pin && h.pin.length && !opts.pinAtlandi) { pinKutuAc(h); return; }
     aktifPid = pid; aktifHasta = h; setAktifId(pid);
-    // başka hastaya geçişte alarm durumunu sıfırla
     alerted.clear(); deferred.clear(); queue = []; currentDue = null; modalGizle();
     appGoster();
     $('#h-cip-adi').textContent = h.ad;
     $('#h-cip-avatar').textContent = harf(h.ad);
     $('#h-cip-avatar').className = 'flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold text-white ' + avatarRenk(h.ad);
     loadAyarSec(); listeyiCiz();
+    console.log('🔔 hastaGir() sonrasi notiPlanla() cagriliyor...');
     notiPlanla();
   }
 
