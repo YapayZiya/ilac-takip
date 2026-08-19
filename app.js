@@ -120,6 +120,8 @@ import { Share } from '@capacitor/share';
       if (!perm || perm.display !== 'granted') perm = await LocalNotifications.requestPermissions();
       nativeAktif = !!(perm && perm.display === 'granted');
       toast(nativeAktif ? 'Arka plan bildirimleri hazır.' : 'Arka plan bildirim izni kapalı.');
+      // Kural 4: Android 12+ Exact Alarm iznini gercekten dene
+      if (nativeAktif) exactAlarmKontrolu();
     } catch (e) {
       console.warn('LocalNotifications hazırlanamadı:', e);
       nativeAktif = false;
@@ -158,11 +160,48 @@ import { Share } from '@capacitor/share';
     toast('Alındı olarak işaretlendi.');
   }
 
+  // Android 12+ (API 31) Exact Alarm iznini GERCEKTEN dener.
+  // JS'ten AlarmManager'a dogrudan ulasim olmadigindan, 1 saat sonrasina
+  // "at" ile gecen bir probe bildirimi kurmaya calisir. Izni yoksa Android
+  // SecurityException / SCHEDULE_EXACT_ALARM hatasi dondurur -> tespit edilir.
+  // Kurulabildiyse probe derhal iptal edilir (kullaniciya dokunulmaz).
+  async function exactAlarmKontrolu() {
+    if (!isNative || !nativeAktif) return;
+    const probeId = 999998;
+    try {
+      const geoAt = new Date(Date.now() + 3600000).toISOString();
+      await LocalNotifications.schedule({
+        notifications: [{
+          id: probeId,
+          title: '__probe__',
+          body: '',
+          smallIcon: 'ic_stat_notify',
+          allowWhileIdle: true,
+          schedule: { at: geoAt },
+        }]
+      });
+      console.log('✅ Exact Alarm izni OK — probe kuruldu ve derhal iptal edilecek.');
+      try { await LocalNotifications.cancel({ notifications: [{ id: probeId }] }); } catch {}
+    } catch (e) {
+      const msg = String((e && e.message) || e || '');
+      if (/EXACT_ALARM|startAlarm|SecurityException|permission/i.test(msg)) {
+        console.error('🚫 Exact Alarm izni EKSİK! Android → Ayarlar → Uygulamalar → İlaç Takip → "Tam zamanlı alarm" iznini AÇIN. Ham hata:', msg);
+        toast('⚠ Tam Zamanlı Alarm izni eksik. Android Ayarlar\'dan verin.');
+      } else {
+        console.error('Exact Alarm probe beklenmedik hata:', e);
+        try { await LocalNotifications.cancel({ notifications: [{ id: probeId }] }); } catch {}
+      }
+    }
+  }
+
   // Aktif hastanin dozlarini sonraki olusumuna (bugun degilse yarin) planlar.
   // Her degisiklikte once tumu iptal, sonra aktif hasta icin yeniden planlar.
+  // KOSEN KURALLAR: ISO-8601 string at, allowWhileIdle:true, benzersiz int id,
+  // agresif debug log + exact-alarm hatasi tespiti.
   async function notiPlanla() {
     if (!(isNative && nativeAktif)) return;
     try {
+      // Kural: yigin/duplikasyon olmasin — yigin once temizlenir.
       await LocalNotifications.cancelAll();
       const meds = getMeds();
       const ayar = getAyar();
@@ -176,23 +215,32 @@ import { Share } from '@capacitor/share';
           const hedef = (todayTaken || t0.getTime() <= Date.now())
             ? new Date(t0.getTime() + 86400000)
             : t0;
-          let fireAt = hedef.getTime() - ayar.onerakDk * 60000;
-          if (fireAt < Date.now()) fireAt = Date.now();
+          let hedefZaman = hedef.getTime() - ayar.onerakDk * 60000;
+          if (hedefZaman < Date.now()) hedefZaman = Date.now();
           const key = `${m.id}|${dateStr(hedef)}|${time}`;
-          const nid = notiIdForKey(key);
-          map[nid] = key;
-          console.log('PLANLANAN ALARM:', { id: nid, ilac: m.ad, saat: time, hedef: hedef.toLocaleString('tr-TR'), fireAt: new Date(fireAt).toLocaleString('tr-TR'), ISO: new Date(fireAt).toISOString() });
+          // Kural 3: benzersiz + 32-bit signed güvenli (2038'e kadar) INTEGER id
+          const yeniId = Math.abs(Math.floor(hedefZaman / 1000) + (notiIdForKey(key) % 100000));
+          map[yeniId] = key;
+          // Kural 5: agresif debug log
+          console.log('🔔 ALARM PLANLANDI:', {
+            id: yeniId,
+            ilac: m.ad,
+            saat: time,
+            hedefZaman: new Date(hedefZaman).toLocaleString('tr-TR'),
+            isoString: new Date(hedefZaman).toISOString(),
+            allowWhileIdle: true,
+          });
           list.push({
-            id: nid,
-            title: m.ad,
+            id: yeniId,                                        // Kural 3: integer
+            title: m.ad,                                       // spesifik ilac adi (sabit metin YOK)
             body: `${time} · ${m.doz || 'doz'}`,
             smallIcon: 'ic_stat_notify',
             color: '#0d9488',
             category: 'reminder',
             importance: 4,
             priority: 3,
-            allowWhileIdle: true,
-            schedule: { at: new Date(fireAt) },
+            allowWhileIdle: true,                              // Kural 2
+            schedule: { at: new Date(hedefZaman).toISOString() }, // Kural 1: ISO 8601 string
             actions: [{ id: 'taken', type: 'button', title: 'Alındı ✓' }],
           });
         }
@@ -203,10 +251,17 @@ import { Share } from '@capacitor/share';
       Object.assign(prev, map);
       writeJSON(NOTI_KEY, prev);
       if (list.length) await LocalNotifications.schedule({ notifications: list });
-      console.log('notiPlanla tamam: toplam', list.length, 'bildirim planlandı.');
+      console.log('✅ ALARM PLANLAMA TAMAM — cancelAll() + schedule() basarili, toplam', list.length, 'bildirim.');
     } catch (e) {
-      console.warn('Bildirimler planlanamadı:', e);
-      toast('Bildirimler planlanamadı. Android Ayarlar → Uygulamalar → Tam Zamanlı Alarm iznini kontrol edin.');
+      const msg = String((e && e.message) || e || '');
+      console.error('❌ ALARM PLANLANAMADI —', e);
+      // Kural 4: exact-alarm izni eksikse net mesaj
+      if (/EXACT_ALARM|startAlarm|SecurityException|permission/i.test(msg)) {
+        console.error('🚫 Neden: Tam Zamanlı Alarm (SCHEDULE_EXACT_ALARM) izni eksik. Android Ayarlar → Uygulamalar → İlaç Takip → izni açın.');
+        toast('⚠ Tam Zamanlı Alarm izni eksik. Android Ayarlar\'dan verin.');
+      } else {
+        toast('Bildirimler planlanamadı.');
+      }
     }
   }
 
@@ -214,7 +269,7 @@ import { Share } from '@capacitor/share';
     if (!(isNative && nativeAktif)) { toast('Native bildirim açık değil. Önce zil ikona dokunup izin verin.'); return; }
     try {
       const at = new Date(Date.now() + 5000);
-      console.log('TEST BİLDİRİMİ planlandı, at:', at.toISOString());
+      console.log('TEST BİLDİRİMİ planlandı, at (ISO):', at.toISOString());
       await LocalNotifications.schedule({
         notifications: [{
           id: 999999,
@@ -223,7 +278,7 @@ import { Share } from '@capacitor/share';
           smallIcon: 'ic_stat_notify',
           color: '#0d9488',
           allowWhileIdle: true,
-          schedule: { at },
+          schedule: { at: at.toISOString() },
         }]
       });
       toast('5 sn içinde test bildirimi gelecek.');
