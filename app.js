@@ -12,6 +12,8 @@ import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { App } from '@capacitor/app';
+import { ExactAlarm } from '@ilac/exact-alarm';
 
 (() => {
   'use strict';
@@ -120,8 +122,12 @@ import { Share } from '@capacitor/share';
       if (!perm || perm.display !== 'granted') perm = await LocalNotifications.requestPermissions();
       nativeAktif = !!(perm && perm.display === 'granted');
       toast(nativeAktif ? 'Arka plan bildirimleri hazır.' : 'Arka plan bildirim izni kapalı.');
-      // Kural 4: Android 12+ Exact Alarm iznini gercekten dene
-      if (nativeAktif) exactAlarmKontrolu();
+      // Koken cozum: Android 12+ Exact Alarm iznini kontrol et + kazandir.
+      // Bu izni almadan Capacitor alarmi non-exact kurar ve Doze'da erteler.
+      if (nativeAktif) {
+        await exactAlarmKazandir();
+        App.addListener('resume', onAppResume);
+      }
     } catch (e) {
       console.warn('LocalNotifications hazırlanamadı:', e);
       nativeAktif = false;
@@ -160,37 +166,51 @@ import { Share } from '@capacitor/share';
     toast('Alındı olarak işaretlendi.');
   }
 
-  // Android 12+ (API 31) Exact Alarm iznini GERCEKTEN dener.
-  // JS'ten AlarmManager'a dogrudan ulasim olmadigindan, 1 saat sonrasina
-  // "at" ile gecen bir probe bildirimi kurmaya calisir. Izni yoksa Android
-  // SecurityException / SCHEDULE_EXACT_ALARM hatasi dondurur -> tespit edilir.
-  // Kurulabildiyse probe derhal iptal edilir (kullaniciya dokunulmaz).
-  async function exactAlarmKontrolu() {
+  // KOKEN COZUM — Android 12+ (API 31) Exact Alarm izni.
+  // Capacitor, canScheduleExactAlasks()==false ise alarmi NON-EXACT
+  // (setAndAllowWhileIdle) kurar; bu, Doze/pil-tasarrufunda ERTELENIR ve
+  // saat gelince CALMAZ. Buradan CustomPlugin ile:
+  //   1) Gercek AlarmManager.canScheduleExactAlams() degerini al
+  //   2) Izin yoksa kullaniciyi DOGRU ayar sayfasina gonder (ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+  // Kullanici "Izinle" deyip geri donunce onAppResume() alarmlari EXACT
+  // olarak yeniden planlar.
+  async function exactAlarmKazandir() {
     if (!isNative || !nativeAktif) return;
-    const probeId = 999998;
+    let r;
     try {
-      const geoAt = new Date(Date.now() + 3600000).toISOString();
-      await LocalNotifications.schedule({
-        notifications: [{
-          id: probeId,
-          title: '__probe__',
-          body: '',
-          smallIcon: 'ic_stat_notify',
-          allowWhileIdle: true,
-          schedule: { at: geoAt },
-        }]
-      });
-      console.log('✅ Exact Alarm izni OK — probe kuruldu ve derhal iptal edilecek.');
-      try { await LocalNotifications.cancel({ notifications: [{ id: probeId }] }); } catch {}
+      r = await ExactAlarm.canSchedule();
     } catch (e) {
-      const msg = String((e && e.message) || e || '');
-      if (/EXACT_ALARM|startAlarm|SecurityException|permission/i.test(msg)) {
-        console.error('🚫 Exact Alarm izni EKSİK! Android → Ayarlar → Uygulamalar → İlaç Takip → "Tam zamanlı alarm" iznini AÇIN. Ham hata:', msg);
-        toast('⚠ Tam Zamanlı Alarm izni eksik. Android Ayarlar\'dan verin.');
-      } else {
-        console.error('Exact Alarm probe beklenmedik hata:', e);
-        try { await LocalNotifications.cancel({ notifications: [{ id: probeId }] }); } catch {}
+      console.warn('ExactAlarm plugin cagrilirken hata (plugin yok mu?):', e);
+      return;
+    }
+    if (!r || r.canSchedule) {
+      console.log('✅ Exact Alarm izni OK (canScheduleExactAlams=true) → alarmlar EXACT kurulacak.');
+      return;
+    }
+    console.warn('🚫 Exact Alarm izni EKSİK — DOGRU ayar sayfasini aciyorum. Izinsiz alarmlar NON-EXACT kalir (Doze\'da ertelenebilir).');
+    toast('⚠ Arka plandaki alarm icin "Tam Zamanli Alarm" izni gerekli. Önünüze gelen ekranda "İzinle" deyin.');
+    try {
+      const res = await ExactAlarm.request();
+      console.log('Exact alarm ayarlar sayfası açıldı:', res);
+    } catch (e) {
+      console.error('Exact alarm ayarlar sayfası açılamadı → manuel yol: Ayarlar → Uygulamalar → İlaç Takip → "Tam zamanlı alarm". Hata:', e);
+    }
+  }
+
+  // Kullanici izin sayfasindan geri donunce: izni tekrar kontrol et,
+  // alindiysa alarmlari EXACT olarak yeniden kurgula.
+  async function onAppResume() {
+    if (!isNative || !nativeAktif) return;
+    let r;
+    try { r = await ExactAlarm.canSchedule(); } catch { return; }
+    if (r && r.canSchedule) {
+      if (aktifPid) {
+        console.log('✅ Exact Alarm izni ALINDI → alarmlar EXACT olarak yeniden planlaniyor.');
+        await notiPlanla();
+        toast('Tam zamanlı alarm etkin — arka planda bile çalacak.');
       }
+    } else if (r && r.exactAlarmRequired) {
+      console.warn('⚠ Exact Alarm izni hâlâ eksik. Ayarlar → Uygulamalar → İlaç Takip → "Tam zamanlı alarm".');
     }
   }
 
