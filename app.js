@@ -261,7 +261,12 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       return;
     }
     try {
-      await LocalNotifications.cancelAll();
+      const prev = readJSON(NOTI_KEY, {});
+      const prevIds = Object.keys(prev).map(Number).filter((id) => !Number.isNaN(id));
+      if (prevIds.length) {
+        console.log('notiPlanla: onceki bildirimler iptal ediliyor, adet=', prevIds.length);
+        try { await LocalNotifications.cancel({ notifications: prevIds.map((id) => ({ id })) }); } catch (e) { console.warn('onceki iptal hatasi:', e); }
+      }
       const meds = getMeds();
       console.log('notiPlanla: ilac sayisi=', meds.length, meds.map(x => ({ id: x.id, ad: x.ad, times: x.times })));
       const ayar = getAyar();
@@ -316,15 +321,15 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       console.log('notiPlanla: toplam planlanacak bildirim=', list.length);
       if (!list.length) {
         toast('Planlanacak alarm yok. İlaç saatlerini kontrol edin.');
+        writeJSON(NOTI_KEY, {});
         return;
       }
-      const prev = readJSON(NOTI_KEY, {});
       const fresh = new Set(Object.keys(map));
       Object.keys(prev).forEach((k) => { if (!fresh.has(String(k))) delete prev[k]; });
       Object.assign(prev, map);
       writeJSON(NOTI_KEY, prev);
       await LocalNotifications.schedule({ notifications: list });
-      console.log('✅ ALARM PLANLAMA TAMAM — cancelAll() + schedule() basarili, toplam', list.length, 'bildirim.');
+      console.log('✅ ALARM PLANLAMA TAMAM — schedule() basarili, toplam', list.length, 'bildirim.');
       toast('Alarmlar planlandı.');
     } catch (e) {
       const msg = String((e && e.message) || e || '');
