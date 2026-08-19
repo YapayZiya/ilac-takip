@@ -250,68 +250,84 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   // KOSEN KURALLAR: ISO-8601 string at, allowWhileIdle:true, benzersiz int id,
   // agresif debug log + exact-alarm hatasi tespiti.
   async function notiPlanla() {
-    if (!(isNative && nativeAktif)) return;
+    if (!(isNative && nativeAktif)) {
+      console.log('notiPlanla atlandi: native=', isNative, 'nativeAktif=', nativeAktif);
+      return;
+    }
     try {
-      // Kural: yigin/duplikasyon olmasin — yigin once temizlenir.
       await LocalNotifications.cancelAll();
       const meds = getMeds();
+      console.log('notiPlanla: ilac sayisi=', meds.length, meds.map(x => ({ id: x.id, ad: x.ad, times: x.times })));
       const ayar = getAyar();
+      console.log('notiPlanla: ayar=', ayar);
       const done = getDone();
       const list = [];
       const map = {};
       for (const m of meds) {
+        if (!Array.isArray(m.times) || !m.times.length) {
+          console.warn('notiPlanla: zaman bulunamadi ->', m.ad, m.times);
+          continue;
+        }
         for (const time of m.times) {
-          const t0 = parseTime(time);
-          const todayTaken = !!done[`${m.id}|${todayStr()}|${time}`];
+          const raw = String(time).trim();
+          if (!raw) {
+            console.warn('notiPlanla: bos zaman atlandi ->', m.ad);
+            continue;
+          }
+          const t0 = parseTime(raw);
+          const todayTaken = !!done[`${m.id}|${todayStr()}|${raw}`];
           const hedef = (todayTaken || t0.getTime() <= Date.now())
             ? new Date(t0.getTime() + 86400000)
             : t0;
           let hedefZaman = hedef.getTime() - ayar.onerakDk * 60000;
           if (hedefZaman < Date.now()) hedefZaman = Date.now();
-          const key = `${m.id}|${dateStr(hedef)}|${time}`;
-          // Kural 3: benzersiz + 32-bit signed güvenli (2038'e kadar) INTEGER id
+          const key = `${m.id}|${dateStr(hedef)}|${raw}`;
           const yeniId = Math.abs(Math.floor(hedefZaman / 1000) + (notiIdForKey(key) % 100000));
           map[yeniId] = key;
-          // Kural 5: agresif debug log
           console.log('🔔 ALARM PLANLANDI:', {
             id: yeniId,
             ilac: m.ad,
-            saat: time,
+            saat: raw,
             hedefZaman: new Date(hedefZaman).toLocaleString('tr-TR'),
             isoString: new Date(hedefZaman).toISOString(),
             allowWhileIdle: true,
           });
           list.push({
-            id: yeniId,                                        // Kural 3: integer
-            title: m.ad,                                       // spesifik ilac adi (sabit metin YOK)
-            body: `${time} · ${m.doz || 'doz'}`,
+            id: yeniId,
+            title: m.ad,
+            body: `${raw} · ${m.doz || 'doz'}`,
             smallIcon: 'ic_stat_notify',
             color: '#0d9488',
             category: 'reminder',
             importance: 4,
             priority: 3,
-            allowWhileIdle: true,                              // Kural 2
-            schedule: { at: new Date(hedefZaman).toISOString() }, // Kural 1: ISO 8601 string
+            allowWhileIdle: true,
+            schedule: { at: new Date(hedefZaman).toISOString() },
             actions: [{ id: 'taken', type: 'button', title: 'Alındı ✓' }],
           });
         }
+      }
+      console.log('notiPlanla: toplam planlanacak bildirim=', list.length);
+      if (!list.length) {
+        toast('Planlanacak alarm yok. İlaç saatlerini kontrol edin.');
+        return;
       }
       const prev = readJSON(NOTI_KEY, {});
       const fresh = new Set(Object.keys(map));
       Object.keys(prev).forEach((k) => { if (!fresh.has(String(k))) delete prev[k]; });
       Object.assign(prev, map);
       writeJSON(NOTI_KEY, prev);
-      if (list.length) await LocalNotifications.schedule({ notifications: list });
+      await LocalNotifications.schedule({ notifications: list });
       console.log('✅ ALARM PLANLAMA TAMAM — cancelAll() + schedule() basarili, toplam', list.length, 'bildirim.');
+      toast('Alarmlar planlandı.');
     } catch (e) {
       const msg = String((e && e.message) || e || '');
       console.error('❌ ALARM PLANLANAMADI —', e);
-      // Kural 4: exact-alarm izni eksikse net mesaj
       if (/EXACT_ALARM|startAlarm|SecurityException|permission/i.test(msg)) {
         console.error('🚫 Neden: Tam Zamanlı Alarm (SCHEDULE_EXACT_ALARM) izni eksik. Android Ayarlar → Uygulamalar → İlaç Takip → izni açın.');
         toast('⚠ Tam Zamanlı Alarm izni eksik. Android Ayarlar\'dan verin.');
       } else {
-        toast('Bildirimler planlanamadı.');
+        toast('Bildirimler planlanamadı: ' + msg);
       }
     }
   }
@@ -359,6 +375,13 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     const satir = [];
     satir.push(`isNative: ${isNative}`);
     satir.push(`nativeAktif: ${nativeAktif}`);
+    const meds = getMeds();
+    satir.push(`İlaç sayisi: ${meds.length}`);
+    if (meds.length) {
+      satir.push(`İlaçlar: ${JSON.stringify(meds.map(x => ({ id: x.id, ad: x.ad, times: x.times })))}`);
+    }
+    const done = getDone();
+    satir.push(`Alinan kayit: ${Object.keys(done).length}`);
     if (isNative) {
       try {
         const perm = await LocalNotifications.checkPermissions();
@@ -377,8 +400,6 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     satir.push(`Bekleyen bildirim: ${notifications.length}`);
     satir.push(`Aktif hasta: ${aktifPid || 'yok'}`);
     satir.push(`Aktif hasta ad: ${aktifHasta?.ad || 'yok'}`);
-    satir.push(`İlaç sayisi: ${getMeds().length}`);
-    satir.push(`Alinan kayit: ${Object.keys(getDone()).length}`);
     console.log('🔍 BILDIRIM TANILAMA:\n' + satir.join('\n'));
     alert('Tanılama:\n\n' + satir.join('\n'));
   }
@@ -526,6 +547,20 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     } catch (e) { console.warn('Bildirim gönderilemedi:', e); }
   }
   async function izinIste() {
+    if (isNative) {
+      try {
+        const perm = await LocalNotifications.checkPermissions();
+        if (perm.display !== 'granted') {
+          const newPerm = await LocalNotifications.requestPermissions();
+          toast(newPerm.display === 'granted' ? 'Bildirim izni verildi.' : 'Bildirim izni reddedildi.');
+        } else {
+          toast('Bildirim izni zaten verilmiş.');
+        }
+      } catch (e) {
+        toast('Bildirim izni istenemedi.');
+      }
+      return;
+    }
     if (!('Notification' in window)) { toast('Tarayıcınız masaüstü bildirimi desteklemiyor.'); return; }
     let p = Notification.permission;
     if (p === 'default') { try { p = await Notification.requestPermission(); } catch { p = Notification.permission; } }
