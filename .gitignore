@@ -2,7 +2,7 @@
 node_modules/
 
 # Capacitor native platform (CI'de, cloud build esnasinda uretilir)
-android/
+/android/
 
 # Derleme artefakti (npm run build ile uretilir)
 www/app.bundle.js
