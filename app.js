@@ -871,6 +871,8 @@ import { ExactAlarm } from '@ilac/exact-alarm';
         toast('Yedek paylaşıldı.');
       } catch (e) {
         console.error('Dosya paylaşımı başarısız:', e);
+        const hataMesaji = (e && e.message) ? e.message : String(e);
+        alert('Yedekleme hatası:\n\n' + hataMesaji + '\n\nDetaylar için konsola bakın.');
         toast('Paylaşım başarısız: ' + (e.message || e));
       }
     } else {
