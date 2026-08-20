@@ -309,12 +309,13 @@ import { ExactAlarm } from '@ilac/exact-alarm';
             body: `${raw} · ${m.doz || 'doz'}`,
             smallIcon: 'ic_stat_notify',
             color: '#0d9488',
-            category: 'reminder',
+            category: 'alarm',
             importance: 4,
             priority: 4,
-            allowWhileIdle: true,
             visibility: 'public',
             vibrationPattern: [0, 300, 200, 300, 200, 300],
+            allowWhileIdle: true,
+            fullScreenIntent: true,
             schedule: { at: new Date(hedefZaman).toISOString() },
             actions: [{ id: 'taken', type: 'button', title: 'Alındı ✓' }],
           });
@@ -357,11 +358,13 @@ import { ExactAlarm } from '@ilac/exact-alarm';
           body: 'Bildirim sistemi çalışıyor! Bu bir test.',
           smallIcon: 'ic_stat_notify',
           color: '#0d9488',
+          category: 'alarm',
           importance: 4,
           priority: 4,
           visibility: 'public',
           vibrationPattern: [0, 300, 200, 300, 200, 300],
           allowWhileIdle: true,
+          fullScreenIntent: true,
           schedule: { at: at.toISOString() },
         }]
       });
@@ -446,12 +449,12 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     for (const it of inst) {
       const first = !gosterilen.has(it.med.id);
       if (first) gosterilen.add(it.med.id);
-      list.appendChild(kartOlustur(it, first));
+      list.appendChild(kartOlustur(it, first, done));
     }
     ozetiGuncelle(inst.length, inst.filter((i) => i.isDone).length);
   }
 
-  function kartOlustur(it, firstMed) {
+  function kartOlustur(it, firstMed, done) {
     const { med, time, isDone, overdue } = it;
     const durum = isDone ? 'done' : overdue ? 'overdue' : 'pending';
     const el = document.createElement('article');
@@ -465,6 +468,16 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     const rozetYazi = isDone ? 'Alındı' : overdue ? 'Geçti' : 'Bekleniyor';
     const adRengi = isDone ? 'text-stone-700' : overdue ? 'text-rose-900' : 'text-stone-800';
     const dozRengi = overdue ? 'text-rose-700/80' : 'text-stone-500';
+
+    let gosterilenZaman = time;
+    if (isDone && done) {
+      const takenKey = `${med.id}|${todayStr()}|${time}`;
+      const takenTs = done[takenKey];
+      if (takenTs) {
+        const td = new Date(takenTs);
+        gosterilenZaman = `${pad(td.getHours())}:${pad(td.getMinutes())}`;
+      }
+    }
 
     let kontrol;
     if (isDone) {
@@ -491,7 +504,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
 
     el.innerHTML = `
       <div class="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-xl ${rozetArk}">
-        <span class="text-lg font-bold leading-none">${time}</span>
+        <span class="text-lg font-bold leading-none">${gosterilenZaman}</span>
         <span class="mt-1 text-[11px] font-semibold">${rozetYazi}</span>
       </div>
       <div class="min-w-0 flex-1">

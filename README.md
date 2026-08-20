@@ -16,8 +16,8 @@
 - Tam zamanlı alarm (Exact Alarm) desteği
 - Android 12+ `SCHEDULE_EXACT_ALARM` izni kontrolü
 - Android 13+ `POST_NOTIFICATIONS` izni desteği
-- Yüksek öncelikli bildirimler + titreşim + ekran açma
-- Alındı işaretinde saat/dakika zamanı gösterimi
+- Full-screen intent ile ekran açma + yüksek öncelikli titreşimli alarm
+- Alındı işaretinde alınan saatin kartta kalıcı gösterimi
 - PWA + Capacitor Android (APK)
 
 ## Teknoloji Yığını

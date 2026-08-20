@@ -19,7 +19,7 @@ Bu dosya, bu repo için yapay zeka asistanlarının (agent'ların) kod yazarken 
 - Her değişiklikte `notiPlanla()` çağrılır.
 - Zaman kontrolü (web tarafı): `kontrol()` + `setInterval(15sn)` — sayfa açıkken çalışır.
 - Test butonları: `testNotiGonder()` ve `debugNotiGoster()` mevcut.
-- Android’de bildirim uyandırma/titreşim için `priority: 4`, `visibility: 'public'`, `vibrationPattern` kullan.
+- Android’de bildirim uyandırma/titreşim için `priority: 4`, `visibility: 'public'`, `vibrationPattern`, `fullScreenIntent: true` kullan.
 - `izinIste()` native’de LocalPermissions kullanır.
 
 ## AndroidManifest
