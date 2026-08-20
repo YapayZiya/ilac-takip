@@ -16,7 +16,7 @@
 - Tam zamanlı alarm (Exact Alarm) desteği
 - Android 12+ `SCHEDULE_EXACT_ALARM` izni kontrolü
 - Android 13+ `POST_NOTIFICATIONS` izni desteği
-- Full-screen intent ile ekran açma + yüksek öncelikli titreşimli alarm
+- Full-screen intent ile ekran açma + uygulamayı öne getirme + yüksek öncelikli titreşimli alarm
 - Alındı işaretinde alınan saatin kartta kalıcı gösterimi
 - PWA + Capacitor Android (APK)
 
@@ -79,11 +79,18 @@ ilac_takip/
 ├── plugins/
 │   └── exact-alarm/        # Android Exact Alarm custom plugin
 ├── android/                # Capacitor Android projesi
+├── docs/
+│   └── screenshots/        # Uygulama ekran görüntüleri
 ├── .github/workflows/      # CI/CD
 ├── package.json
 ├── capacitor.config.json
 └── scripts/
 ```
+
+## Ekran Görüntüleri
+
+![Uygulama ekranı 1](docs/screenshots/Screenshot_1.jpg)
+![Uygulama ekranı 2](docs/screenshots/Screenshot_2.jpg)
 
 ## Lisans
 

@@ -29,7 +29,7 @@
 - [x] Exact Alarm izni kontrolü + isteme (Android 12+)
 - [x] `notiPlanla()` — aktif hasta tüm dozlarını planlar
 - [x] Android bildirimlerinde `priority: 4`, `visibility: public`, `vibrationPattern`
-- [x] Full-screen intent ile ekran açma + alarm çalma
+- [x] Full-screen intent ile ekran açma + uygulamayı öne getirme
 - [x] Alındı işaretinde zaman bilgisi kartta kalıcı gösterimi
 
 ## Faz 5 — Veri Yedeği

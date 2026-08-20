@@ -124,6 +124,15 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       nativeAktif = !!(perm && perm.display === 'granted');
       toast(nativeAktif ? 'Arka plan bildirimleri hazır.' : 'Arka plan bildirim izni kapalı.');
       if (nativeAktif) {
+        await LocalNotifications.createChannel({
+          id: 'med-reminders',
+          name: 'İlaç Hatırlatıcıları',
+          description: 'İlaç zamanı geldiğinde çalacak alarm ve bildirimler.',
+          importance: 5,
+          visibility: 'public',
+          sound: 'default',
+          vibration: true,
+        }).catch((e) => console.warn('Kanal olusturma hatasi:', e));
         await tamBildirimIzniKontrol();
         await exactAlarmKazandir();
         await pilOptimizasyonKontrol();
@@ -309,6 +318,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
             body: `${raw} · ${m.doz || 'doz'}`,
             smallIcon: 'ic_stat_notify',
             color: '#0d9488',
+            channelId: 'med-reminders',
             category: 'alarm',
             importance: 4,
             priority: 4,
@@ -358,6 +368,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
           body: 'Bildirim sistemi çalışıyor! Bu bir test.',
           smallIcon: 'ic_stat_notify',
           color: '#0d9488',
+          channelId: 'med-reminders',
           category: 'alarm',
           importance: 4,
           priority: 4,

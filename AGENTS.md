@@ -20,6 +20,7 @@ Bu dosya, bu repo için yapay zeka asistanlarının (agent'ların) kod yazarken 
 - Zaman kontrolü (web tarafı): `kontrol()` + `setInterval(15sn)` — sayfa açıkken çalışır.
 - Test butonları: `testNotiGonder()` ve `debugNotiGoster()` mevcut.
 - Android’de bildirim uyandırma/titreşim için `priority: 4`, `visibility: 'public'`, `vibrationPattern`, `fullScreenIntent: true` kullan.
+- Uygulama öne çıkarmak için bildirim kanalı `med-reminders` oluşturulur ve tüm alarm bildirimleri bu kanala atanır.
 - `izinIste()` native’de LocalPermissions kullanır.
 
 ## Veri Yedeği
