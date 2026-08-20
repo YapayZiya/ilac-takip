@@ -89,8 +89,10 @@ ilac_takip/
 
 ## Ekran Görüntüleri
 
-<img src="docs/screenshots/Screenshot_1.jpg" alt="Ekran 1" style="width: 50%; max-width: 420px; height: auto;" />
-<img src="docs/screenshots/Screenshot_2.jpg" alt="Ekran 2" style="width: 50%; max-width: 420px; height: auto;" />
+<div style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: center;">
+  <img src="docs/screenshots/Screenshot_1.jpg" alt="Ekran 1" style="width: 40%; max-width: 320px; height: auto; border-radius: 8px;" />
+  <img src="docs/screenshots/Screenshot_2.jpg" alt="Ekran 2" style="width: 40%; max-width: 320px; height: auto; border-radius: 8px;" />
+</div>
 
 ## Lisans
 
