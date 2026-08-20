@@ -23,6 +23,12 @@ Bu dosya, bu repo için yapay zeka asistanlarının (agent'ların) kod yazarken 
 - Uygulama öne çıkarmak için bildirim kanalı `med-reminders` oluşturulur ve tüm alarm bildirimleri bu kanala atanır.
 - `izinIste()` native’de LocalPermissions kullanır.
 
+## UX Kuralları
+
+- Ayarlar paneli (`#panel-ayar`) kapanınca ana ekrana dönülür (`ayarKapa()` → `appGoster()`).
+- İlaç listesi uzun ise `listeyiCiz()` sonrası bekleyen ilaçlara otomatik kaydırılır.
+- Gün sonu özeti: tüm ilaçlar alındığında `#modal-summary` gösterilir.
+
 ## Veri Yedeği
 
 - Native’de iki seçenek vardır:

@@ -16,8 +16,11 @@
 - Tam zamanlı alarm (Exact Alarm) desteği
 - Android 12+ `SCHEDULE_EXACT_ALARM` izni kontrolü
 - Android 13+ `POST_NOTIFICATIONS` izni desteği
-- Full-screen intent ile ekran açma + uygulamayı öne getirme + yüksek öncelikli titreşimli alarm
+- Yüksek öncelikli bildirimler + titreşim + ekran açma
 - Alındı işaretinde alınan saatin kartta kalıcı gösterimi
+- Ayarlar ekranı geri tuşu ile ana ekrana dönüş
+- Uzun ilaç listelerinde bekleyen ilaçlara otomatik kaydırma
+- Gün sonu özet raporu (alınan / atlanan ilaçlar)
 - PWA + Capacitor Android (APK)
 
 ## Teknoloji Yığını

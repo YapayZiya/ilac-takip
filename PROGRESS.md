@@ -43,6 +43,12 @@
 - [x] Otomatik izin enjeksiyonu (AndroidManifest)
 - [x] APK artifact upload
 
+## Faz 7 — UX İyileştirmeleri
+- [x] Ayarlar ekranı geri tuşu ile ana ekrana dönüş
+- [x] Uzun listelerde bekleyen ilaçlara otomatik kaydırma
+- [x] Gün sonu özet raporu (alınan / atlanan ilaçlar)
+- [x] `optimization.md` proje optimizasyon önerileri
+
 ## Açık Sorunlar
 - [x] ~~Android 13+ `POST_NOTIFICATIONS` izni eksik~~ (eklendi)
 - [ ] Uygulama öldürüldüğünde exact alarm güvenilirliği

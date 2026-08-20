@@ -465,6 +465,13 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       list.appendChild(kartOlustur(it, first, done));
     }
     ozetiGuncelle(inst.length, inst.filter((i) => i.isDone).length);
+
+    const pending = inst.filter((i) => !i.isDone);
+    if (pending.length) {
+      const sonBekleyen = pending[pending.length - 1];
+      const kart = list.querySelector(`[data-time="${sonBekleyen.time}"][data-med="${sonBekleyen.med.id}"]`);
+      if (kart) kart.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   }
 
   function kartOlustur(it, firstMed, done) {
@@ -476,6 +483,8 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       overdue: 'border-rose-100 border-l-rose-500 bg-rose-50 is-overdue',
       pending: 'border-stone-100 border-l-amber-400 bg-white shadow-sm',
     }[durum];
+    el.dataset.time = time;
+    el.dataset.med = med.id;
 
     const rozetArk = isDone ? 'bg-emerald-100 text-emerald-700' : overdue ? 'bg-rose-100 text-rose-700' : 'bg-amber-50 text-amber-700';
     const rozetYazi = isDone ? 'Alındı' : overdue ? 'Geçti' : 'Bekleniyor';
@@ -540,6 +549,29 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     $('#summary-total').textContent = toplam;
     $('#summary-pending').textContent = Math.max(0, toplam - alinan);
     $('#summary-done').textContent = alinan;
+  }
+
+  function gunSonuOzetGoster() {
+    const meds = getMeds(), done = getDone(), ds = todayStr();
+    const body = $('#summary-body');
+    body.innerHTML = '';
+    if (!meds.length) { $('#modal-summary').classList.add('hidden'); $('#modal-summary').classList.remove('flex'); return; }
+    const lines = [];
+    for (const m of meds) {
+      for (const time of m.times) {
+        const key = `${m.id}|${ds}|${time}`;
+        const takenTs = done[key];
+        if (takenTs) {
+          const td = new Date(takenTs);
+          lines.push(`<div class="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2"><span class="font-semibold text-emerald-800">${esc(m.ad)} ${time}</span><span class="text-emerald-700">Alındı ${pad(td.getHours())}:${pad(td.getMinutes())}</span></div>`);
+        } else {
+          lines.push(`<div class="flex items-center justify-between rounded-xl bg-rose-50 px-3 py-2"><span class="font-semibold text-rose-800">${esc(m.ad)} ${time}</span><span class="text-rose-700">Atlandı</span></div>`);
+        }
+      }
+    }
+    body.innerHTML = lines.join('');
+    $('#modal-summary').classList.remove('hidden');
+    $('#modal-summary').classList.add('flex');
   }
 
   /* ==========================================================
@@ -637,6 +669,8 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     const now = new Date();
     const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     toast(`${med.ad} ${time} → ${ts} — Alındı ✓`);
+    const remaining = getMeds().filter((m) => !Object.keys(getDone()).some((dk) => dk.startsWith(m.id + '|' + todayStr() + '|'))).length;
+    if (remaining === 0) setTimeout(gunSonuOzetGoster, 600);
   }
   function ertele(item) {
     const ayar = getAyar();
@@ -859,7 +893,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
      AYARLAR (önce uyarı / erteleme) + VERİ YEDEK
      ========================================================== */
   function ayarAc() { if (!aktifPid) return; loadAyarSec(); const p = $('#panel-ayar'); p.classList.remove('hidden'); document.body.classList.add('no-scroll'); }
-  function ayarKapa() { $('#panel-ayar').classList.add('hidden'); document.body.classList.remove('no-scroll'); }
+  function ayarKapa() { $('#panel-ayar').classList.add('hidden'); document.body.classList.remove('no-scroll'); appGoster(); }
   function loadAyarSec() { const a = getAyar(); $('#set-onerak').value = String(a.onerakDk); $('#set-ertele').value = String(a.erteleDk); }
   function ayarKaydet(k, v) { const a = getAyar(); a[k] = v; saveAyar(aktifPid, a); toast('Ayarlar kaydedildi.'); }
 
@@ -989,6 +1023,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
 
     // Ayarlar
     $('#ayar-kapa').addEventListener('click', ayarKapa);
+    $('#btn-summary-close').addEventListener('click', () => { $('#modal-summary').classList.add('hidden'); $('#modal-summary').classList.remove('flex'); });
     $('#set-onerak').addEventListener('change', (e) => { ayarKaydet('onerakDk', +e.target.value); notiPlanla(); });
     $('#set-ertele').addEventListener('change', (e) => ayarKaydet('erteleDk', +e.target.value));
     $('#btn-export').addEventListener('click', veriDisa);
