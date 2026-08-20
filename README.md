@@ -89,8 +89,8 @@ ilac_takip/
 
 ## Ekran Görüntüleri
 
-![Uygulama ekranı 1](docs/screenshots/Screenshot_1.jpg)
-![Uygulama ekranı 2](docs/screenshots/Screenshot_2.jpg)
+<img src="docs/screenshots/Screenshot_1.jpg" alt="Ekran 1" style="width: 50%; max-width: 420px; height: auto;" />
+<img src="docs/screenshots/Screenshot_2.jpg" alt="Ekran 2" style="width: 50%; max-width: 420px; height: auto;" />
 
 ## Lisans
 
