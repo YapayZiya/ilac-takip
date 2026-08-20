@@ -148,10 +148,23 @@ import { ExactAlarm } from '@ilac/exact-alarm';
           }
         }
         App.addListener('resume', onAppResume);
+        App.addListener('backButton', onBackButton);
       }
     } catch (e) {
       console.warn('LocalNotifications hazırlanamadı:', e);
       nativeAktif = false;
+    }
+  }
+
+  function onBackButton() {
+    const ayarPanel = $('#panel-ayar');
+    if (ayarPanel && !ayarPanel.classList.contains('hidden')) {
+      ayarKapa();
+    } else if (!$('#modal-summary').classList.contains('hidden')) {
+      $('#modal-summary').classList.add('hidden');
+      $('#modal-summary').classList.remove('flex');
+    } else if (!$('#modal-alarm').classList.contains('hidden')) {
+      modalGizle();
     }
   }
 
@@ -669,7 +682,10 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     const now = new Date();
     const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     toast(`${med.ad} ${time} → ${ts} — Alındı ✓`);
-    const remaining = getMeds().filter((m) => !Object.keys(getDone()).some((dk) => dk.startsWith(m.id + '|' + todayStr() + '|'))).length;
+    const meds = getMeds();
+    const done = getDone();
+    const ds = todayStr();
+    const remaining = meds.filter((m) => m.times.some((t) => !done[`${m.id}|${ds}|${t}`])).length;
     if (remaining === 0) setTimeout(gunSonuOzetGoster, 600);
   }
   function ertele(item) {
@@ -1030,9 +1046,6 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     $('#btn-export-save').addEventListener('click', veriDisaKaydet);
     $('#btn-import').addEventListener('click', () => { const f = $('#import-file'); f.value = ''; f.click(); });
     $('#import-file').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) veriIcce(f); });
-    $('#btn-test-noti').addEventListener('click', testNotiGonder);
-    $('#btn-debug-noti').addEventListener('click', debugNotiGoster);
-    $('#btn-debug-durum').addEventListener('click', debugNotiDurum);
 
     // İlaç paneli
     $('#btn-add').addEventListener('click', panelAcarYeni);
