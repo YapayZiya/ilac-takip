@@ -28,6 +28,8 @@
 - [x] Native LocalNotifications (Capacitor)
 - [x] Exact Alarm izni kontrolü + isteme (Android 12+)
 - [x] `notiPlanla()` — aktif hasta tüm dozlarını planlar
+- [x] Android bildirimlerinde `priority: 4`, `visibility: public`, `vibrationPattern`
+- [x] Alındı işaretinde zaman bilgisi gösterimi
 
 ## Faz 5 — Veri Yedeği
 - [x] Dışa aktarma (JSON + Share API)
@@ -40,7 +42,7 @@
 - [x] APK artifact upload
 
 ## Açık Sorunlar
-- [ ] Android 13+ `POST_NOTIFICATIONS` izni eksik (AndroidManifest'a eklenmeli)
+- [x] ~~Android 13+ `POST_NOTIFICATIONS` izni eksik~~ (eklendi)
 - [ ] Uygulama öldürüldüğünde exact alarm güvenilirliği
 - [ ] OEM bateri optimizasyonu (Xiaomi, Huawei vb.) engellemeleri
 - [ ] Release APK + signing yapılandırması

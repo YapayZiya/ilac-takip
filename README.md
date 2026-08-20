@@ -14,6 +14,10 @@
 - Veri yedeği (dışa / içe aktarma, JSON)
 - Arka planda çalışan native Android bildirimleri
 - Tam zamanlı alarm (Exact Alarm) desteği
+- Android 12+ `SCHEDULE_EXACT_ALARM` izni kontrolü
+- Android 13+ `POST_NOTIFICATIONS` izni desteği
+- Yüksek öncelikli bildirimler + titreşim + ekran açma
+- Alındı işaretinde saat/dakika zamanı gösterimi
 - PWA + Capacitor Android (APK)
 
 ## Teknoloji Yığını
@@ -60,7 +64,7 @@ Ana dal'a (`main`) her push'ta otomatik olarak debug APK derlenir:
 4. Gradle ile debug APK derlenir
 5. APK, GitHub Actions artifacts olarak yüklenir
 
-> **Not:** Tam zamanlı alarm için Android 12+ cihazlarda uygulamayı ilk açarken `Ayarlar > Uygulamalar > İlaç Takip > Tam zamanlı alarm` iznini açın.
+> **Not:** Tam zamanlı alarm için Android 12+ cihazlarda uygulamayı ilk açarken `Ayarlar > Uygulamalar > İlaç Takip > Tam zamanlı alarm` iznini açın. Android 13+ cihazlarda ek olarak `POST_NOTIFICATIONS` izni istenecektir.
 
 ## Proje Yapısı
 

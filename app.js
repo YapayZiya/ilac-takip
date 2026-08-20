@@ -311,8 +311,10 @@ import { ExactAlarm } from '@ilac/exact-alarm';
             color: '#0d9488',
             category: 'reminder',
             importance: 4,
-            priority: 3,
+            priority: 4,
             allowWhileIdle: true,
+            visibility: 'public',
+            vibrationPattern: [0, 300, 200, 300, 200, 300],
             schedule: { at: new Date(hedefZaman).toISOString() },
             actions: [{ id: 'taken', type: 'button', title: 'Alındı ✓' }],
           });
@@ -355,6 +357,10 @@ import { ExactAlarm } from '@ilac/exact-alarm';
           body: 'Bildirim sistemi çalışıyor! Bu bir test.',
           smallIcon: 'ic_stat_notify',
           color: '#0d9488',
+          importance: 4,
+          priority: 4,
+          visibility: 'public',
+          vibrationPattern: [0, 300, 200, 300, 200, 300],
           allowWhileIdle: true,
           schedule: { at: at.toISOString() },
         }]
@@ -373,7 +379,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       console.log('Bekleyen Bildirimler (getPending):', JSON.stringify(notifications, null, 2));
       if (!notifications.length) { toast('Android tarafında bekleyen bildirim yok.'); return; }
       const lines = notifications.map((n, i) =>
-        `${i + 1}. id=${n.id}  "${n.title}"  ${n.body || ''}`
+        `${i + 1}. id=${n.id}  "${n.title}"  ${n.body || ''}  priority=${n.priority}  visibility=${n.visibility}  vibration=${JSON.stringify(n.vibrationPattern)}`
       );
       alert(`Android'de bekleyen bildirimler (${notifications.length}):\n\n${lines.join('\n\n')}`);
     } catch (e) {
@@ -602,7 +608,9 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     queue = queue.filter((q) => slotKey(q.med.id, q.time) !== k);
     if (currentDue && slotKey(currentDue.med.id, currentDue.time) === k) currentDue = null;
     listeyiCiz(); kuyruguIsle();
-    toast('Alındı olarak işaretlendi.');
+    const now = new Date();
+    const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    toast(`${med.ad} ${time} → ${ts} — Alındı ✓`);
   }
   function ertele(item) {
     const ayar = getAyar();
