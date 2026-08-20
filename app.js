@@ -883,6 +883,45 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       } else { alert('Paylaşım menüsü desteklenmiyor.'); }
     }
   }
+
+  async function veriDisaKaydet() {
+    if (!aktifHasta) return;
+    const veri = {
+      _format: 'ilac-takip-yedek', versiyon: 1,
+      hasta: { id: aktifHasta.id, ad: aktifHasta.ad, pin: aktifHasta.pin },
+      ayar: getAyar(), ilaclar: getMeds(), alindi: getDone(),
+      disariTarih: new Date().toISOString(),
+    };
+    const jsonString = JSON.stringify(veri, null, 2);
+    const baseDosyaAdi = `ilac-takip-${slug(aktifHasta.ad)}-${todayStr()}`;
+    if (isNative) {
+      try {
+        const saveDir = Directory.Documents;
+        const folderPath = 'ilac-takip-yedekler';
+        const targetPath = `${folderPath}/${baseDosyaAdi}.json`;
+        try {
+          await Filesystem.mkdir({ path: folderPath, directory: saveDir, recursive: true });
+        } catch (e) {
+          console.warn('Yedek dizini olusturma hatasi:', e);
+        }
+        await Filesystem.writeFile({ path: targetPath, data: jsonString, directory: saveDir, encoding: Encoding.UTF8 });
+        const { uri } = await Filesystem.getUri({ path: targetPath, directory: saveDir });
+        console.log('Yedek kaydedildi:', uri);
+        toast('Yedek kaydedildi: Documents/ilac-takip-yedekler/');
+      } catch (e) {
+        console.error('Yedek kaydetme hatasi:', e);
+        const hataMesaji = (e && e.message) ? e.message : String(e);
+        alert('Yedek kaydetme hatası:\n\n' + hataMesaji);
+        toast('Yedek kaydedilemedi.');
+      }
+    } else {
+      const file = new File([jsonString], `${baseDosyaAdi}.json`, { type: 'application/json' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: 'İlaç Takip Yedeği' }); toast('Yedek paylaşıldı.'); }
+        catch (e) { if (e.name !== 'AbortError') toast('Paylaşım başarısız.'); }
+      } else { alert('Paylaşım menüsü desteklenmiyor.'); }
+    }
+  }
   function veriIcce(file) {
     const fr = new FileReader();
     fr.onload = () => {
@@ -932,6 +971,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     $('#set-onerak').addEventListener('change', (e) => { ayarKaydet('onerakDk', +e.target.value); notiPlanla(); });
     $('#set-ertele').addEventListener('change', (e) => ayarKaydet('erteleDk', +e.target.value));
     $('#btn-export').addEventListener('click', veriDisa);
+    $('#btn-export-save').addEventListener('click', veriDisaKaydet);
     $('#btn-import').addEventListener('click', () => { const f = $('#import-file'); f.value = ''; f.click(); });
     $('#import-file').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) veriIcce(f); });
     $('#btn-test-noti').addEventListener('click', testNotiGonder);

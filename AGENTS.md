@@ -22,6 +22,13 @@ Bu dosya, bu repo için yapay zeka asistanlarının (agent'ların) kod yazarken 
 - Android’de bildirim uyandırma/titreşim için `priority: 4`, `visibility: 'public'`, `vibrationPattern`, `fullScreenIntent: true` kullan.
 - `izinIste()` native’de LocalPermissions kullanır.
 
+## Veri Yedeği
+
+- Native’de iki seçenek vardır:
+  - `veriDisa()`: dosyayı `Documents/` dizinine yazıp paylaşır.
+  - `veriDisaKaydet()`: dosyayı `Documents/ilac-takip-yedekler/` klasörüne kaydeder, paylaşmaz.
+- İçe aktarma için dosya seçici `#import-file` kullanılır.
+
 ## AndroidManifest
 
 - `android/app/src/main/AndroidManifest.xml` zaten `SCHEDULE_EXACT_ALARM` içerir.

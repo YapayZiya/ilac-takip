@@ -11,7 +11,7 @@
 - Önce uyarı süresi ayarı (0–45 dk)
 - Erteleme (5 / 10 / 15 / 20 / 30 dk)
 - Alındı takibi + günlük özet
-- Veri yedeği (dışa / içe aktarma, JSON)
+- Veri yedeği (dışa aktarma / içe aktarma / telefonda klasöre kaydetme, JSON)
 - Arka planda çalışan native Android bildirimleri
 - Tam zamanlı alarm (Exact Alarm) desteği
 - Android 12+ `SCHEDULE_EXACT_ALARM` izni kontrolü

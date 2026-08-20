@@ -36,6 +36,7 @@
 - [x] Dışa aktarma (JSON + Share API)
 - [x] İçe aktarma (JSON + FileReader)
 - [x] Hasta + ilaç + alındı + ayarlar tam yedek
+- [x] Telefonda `Documents/ilac-takip-yedekler/` klasörüne yedek kaydetme
 
 ## Faz 6 — Android APK + CI/CD
 - [x] GitHub Actions workflow (debug APK)
