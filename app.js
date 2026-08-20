@@ -851,16 +851,26 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       disariTarih: new Date().toISOString(),
     };
     const jsonString = JSON.stringify(veri, null, 2);
-    const dosyaAdi = `ilac-takip-${slug(aktifHasta.ad)}-${todayStr()}.json`;
+    const baseDosyaAdi = `ilac-takip-${slug(aktifHasta.ad)}-${todayStr()}`;
+    const dosyaAdi = `${baseDosyaAdi}.json`;
     if (isNative) {
       try {
-        await Filesystem.writeFile({ path: dosyaAdi, data: jsonString, directory: Directory.Documents, encoding: Encoding.UTF8 });
-        const { uri } = await Filesystem.getUri({ path: dosyaAdi, directory: Directory.Documents });
-        console.log('Yedek dosyası yazıldı, share URI:', uri);
+        const targetDir = Directory.Documents;
+        const targetPath = `${baseDosyaAdi}.json`;
+        try {
+          await Filesystem.mkdir({ path: '', directory: targetDir, recursive: true });
+        } catch (e) {
+          console.warn('Dizin olusturma hatasi (gormeden devam ediliyor):', e);
+        }
+        console.log('Yedek dosyasi yazilmaya calisiliyor:', targetPath, 'directory:', targetDir);
+        const writeResult = await Filesystem.writeFile({ path: targetPath, data: jsonString, directory: targetDir, encoding: Encoding.UTF8 });
+        console.log('Yedek dosyasi yazildi:', writeResult);
+        const { uri } = await Filesystem.getUri({ path: targetPath, directory: targetDir });
+        console.log('Yedek dosya URI:', uri);
         await Share.share({ files: [uri], title: 'İlaç Takip Yedeği' });
-        toast('Yedek paylaşıldı. Documents klasöründe de kayıtlı.');
+        toast('Yedek paylaşıldı.');
       } catch (e) {
-        console.warn('Dosya paylaşımı başarısız:', e);
+        console.error('Dosya paylaşımı başarısız:', e);
         toast('Paylaşım başarısız: ' + (e.message || e));
       }
     } else {
