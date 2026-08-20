@@ -113,6 +113,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
      ========================================================== */
   const NOTI_KEY = 'ilac_takip:noti'; // bildirimi id -> "medId|gg|saat" haritasi
   let nativeAktif = false;            // LocalNotifications icin izin alindi mi
+  let exactAlarmToastShown = false;   // 'Tam zamanlı alarm etkin' toast'unu bir kez göster
 
   async function setupNative() {
     console.log('🔔 setupNative() BASLADI');
@@ -139,6 +140,12 @@ import { ExactAlarm } from '@ilac/exact-alarm';
         if (aktifPid) {
           console.log('🔔 setupNative sonrasi notiPlanla() cagriliyor...');
           await notiPlanla();
+          let r;
+          try { r = await ExactAlarm.canSchedule(); } catch { r = null; }
+          if (r && r.canSchedule && !exactAlarmToastShown) {
+            exactAlarmToastShown = true;
+            toast('Tam zamanlı alarm etkin — arka planda bile çalışacak.');
+          }
         }
         App.addListener('resume', onAppResume);
       }
@@ -249,7 +256,6 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       if (aktifPid) {
         console.log('✅ Exact Alarm izni ALINDI → alarmlar EXACT olarak yeniden planlaniyor.');
         await notiPlanla();
-        toast('Tam zamanlı alarm etkin — arka planda bile çalacak.');
       }
     } else if (r && r.exactAlarmRequired) {
       console.warn('⚠ Exact Alarm izni hâlâ eksik. Ayarlar → Uygulamalar → İlaç Takip → "Tam zamanlı alarm".');
@@ -718,7 +724,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   }
   function paneliTemizleKapat() { paneliKapa(); editingId = null; $('#med-form').reset(); baslaLabel(); saatlariOlustur(1); }
 
-  function ilacKaydetForm() {
+  async function ilacKaydetForm() {
     const ad = $('#ilac-ad').value.trim();
     const doz = $('#ilac-doz').value.trim();
     const times = mevcutSaatler().filter(Boolean);
@@ -728,6 +734,14 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     else { ilacKaydet({ ad, doz, times }); toast('İlaç eklendi.'); }
     paneliTemizleKapat(); listeyiCiz();
     notiPlanla();
+    if (!editingId && isNative && nativeAktif && !exactAlarmToastShown) {
+      let r;
+      try { r = await ExactAlarm.canSchedule(); } catch { r = null; }
+      if (r && r.canSchedule) {
+        exactAlarmToastShown = true;
+        toast('Tam zamanlı alarm etkin — arka planda bile çalışacak.');
+      }
+    }
   }
 
   /* ==========================================================
