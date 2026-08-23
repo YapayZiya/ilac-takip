@@ -7,8 +7,8 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Ä°laÃ§ Takip" />
-  <title>Ä°laÃ§ Takip</title>
+  <meta name="apple-mobile-web-app-title" content="İlaç Takip" />
+  <title>İlaç Takip</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-96.png" type="image/png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -18,17 +18,17 @@
 <body class="bg-gray-100 text-gray-800 antialiased select-none">
   <div id="app" class="mx-auto flex min-h-screen w-full max-w-md flex-col">
 
-    <!-- ============ EKRAN: HASTA SEÃ‡Ä°MÄ° ============ -->
+    <!-- ============ EKRAN: HASTA SEÇİMİ ============ -->
     <section id="ekran-hastalar" class="flex flex-1 flex-col">
       <header class="sticky top-0 z-10 flex items-center justify-between gap-2 bg-brand-600 px-4 py-4 text-white shadow-md" style="padding-top: env(safe-area-inset-top, 0.5rem);">
         <div>
-          <h1 class="text-xl font-bold leading-tight">Ä°laÃ§ Takip</h1>
-          <p class="text-xs text-brand-100" id="hasta-sayac">HenÃ¼z hasta yok</p>
+          <h1 class="text-xl font-bold leading-tight">İlaç Takip</h1>
+          <p class="text-xs text-brand-100" id="hasta-sayac">Henüz hasta yok</p>
         </div>
         <div class="flex items-center gap-2">
           <button id="btn-senkronize" type="button"
             class="rounded-lg bg-brand-700/60 px-3 py-2 text-sm font-medium transition hover:bg-brand-700"
-            title="Firebase'den verileri Ã§ek">
+            title="Firebase'den verileri çek">
             Senkronize Et
           </button>
         </div>
@@ -38,9 +38,9 @@
         <ul id="hasta-listesi" class="space-y-2"></ul>
 
         <div id="hasta-bos" class="mt-8 hidden text-center">
-          <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-3xl">ğŸ’Š</div>
-          <p class="font-medium text-gray-500">HenÃ¼z hasta yok.</p>
-          <p class="text-sm text-gray-400">Ä°laÃ§ takibi iÃ§in ilk hastanÄ±zÄ± ekleyin.</p>
+          <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-3xl">💊</div>
+          <p class="font-medium text-gray-500">Henüz hasta yok.</p>
+          <p class="text-sm text-gray-400">İlaç takibi için ilk hastanızı ekleyin.</p>
         </div>
       </div>
 
@@ -52,23 +52,23 @@
       </div>
     </section>
 
-    <!-- ============ EKRAN: PIN GÄ°RÄ°ÅÄ° ============ -->
+    <!-- ============ EKRAN: PIN GİRİŞİ ============ -->
     <section id="ekran-pin" class="hidden flex-1 flex-col">
       <header class="sticky top-0 z-10 flex items-center gap-2 bg-brand-600 px-2 py-3 text-white shadow-md" style="padding-top: env(safe-area-inset-top, 0.5rem);">
-        <button id="btn-pin-geri" type="button" class="rounded-lg p-2 transition hover:bg-brand-700">â†</button>
-        <span class="text-sm font-medium">Hasta SeÃ§imi</span>
+        <button id="btn-pin-geri" type="button" class="rounded-lg p-2 transition hover:bg-brand-700">←</button>
+        <span class="text-sm font-medium">Hasta Seçimi</span>
       </header>
 
       <div class="flex flex-1 flex-col items-center justify-center px-6 py-10">
-        <div class="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-3xl">ğŸ”’</div>
+        <div class="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-3xl">🔒</div>
         <h2 class="text-lg font-semibold text-gray-700">PIN Kodu Gerekli</h2>
-        <p class="mb-6 text-sm text-gray-400"><span id="pin-hasta-ad"></span> hastasÄ± iÃ§in PIN kodunu girin</p>
+        <p class="mb-6 text-sm text-gray-400"><span id="pin-hasta-ad"></span> hastası için PIN kodunu girin</p>
 
         <input id="pin-input" type="password" inputmode="numeric" autocomplete="off"
-          maxlength="6" placeholder="â€¢â€¢â€¢â€¢"
+          maxlength="6" placeholder="••••"
           class="w-48 rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-center text-2xl tracking-[0.5em] outline-none transition focus:border-brand-500" />
 
-        <p id="pin-hata" class="mt-3 hidden text-sm font-medium text-red-500">HatalÄ± PIN, tekrar deneyin.</p>
+        <p id="pin-hata" class="mt-3 hidden text-sm font-medium text-red-500">Hatalı PIN, tekrar deneyin.</p>
 
         <div class="mt-6 grid w-full max-w-xs grid-cols-3 gap-2">
           <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">1</button>
@@ -80,22 +80,22 @@
           <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">7</button>
           <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">8</button>
           <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">9</button>
-          <button type="button" class="pin-tus-sil col-span-3 bg-gray-100 py-3 text-sm font-medium shadow-sm transition active:scale-95 hover:bg-gray-200 rounded-xl">â† Sil</button>
+          <button type="button" class="pin-tus-sil col-span-3 bg-gray-100 py-3 text-sm font-medium shadow-sm transition active:scale-95 hover:bg-gray-200 rounded-xl">← Sil</button>
         </div>
       </div>
     </section>
 
-    <!-- ============ EKRAN: HASTA PANELÄ° ============ -->
+    <!-- ============ EKRAN: HASTA PANELİ ============ -->
     <section id="ekran-hasta" class="hidden flex-1 flex-col">
       <header class="sticky top-0 z-10 flex items-center justify-between gap-2 bg-brand-600 px-4 py-3 text-white shadow-md" style="padding-top: env(safe-area-inset-top, 0.5rem);">
-        <button id="btn-hasta-geri" type="button" class="rounded-lg p-2 text-xl transition hover:bg-brand-700">â†</button>
+        <button id="btn-hasta-geri" type="button" class="rounded-lg p-2 text-xl transition hover:bg-brand-700">←</button>
         <div class="min-w-0 flex-1 text-center">
           <h2 id="aktif-hasta-ad" class="truncate text-lg font-bold leading-tight"></h2>
           <p id="tarih-bilgi" class="text-xs text-brand-100"></p>
         </div>
         <div class="flex items-center gap-1">
           <button id="btn-ayarlar" type="button" title="Ayarlar"
-            class="rounded-lg p-2 text-xl transition hover:bg-brand-700">âš™ï¸</button>
+            class="rounded-lg p-2 text-xl transition hover:bg-brand-700">⚙️</button>
         </div>
       </header>
 
@@ -103,16 +103,16 @@
         <div id="ilac-kartlari" class="space-y-3"></div>
 
         <div id="ilac-bos" class="mt-8 hidden text-center">
-          <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-3xl">ğŸ’Š</div>
-          <p class="font-medium text-gray-500">HenÃ¼z ilaÃ§ yok.</p>
-          <p class="text-sm text-gray-400">Bu hasta iÃ§in ilaÃ§ ve doz saati ekleyin.</p>
+          <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-3xl">💊</div>
+          <p class="font-medium text-gray-500">Henüz ilaç yok.</p>
+          <p class="text-sm text-gray-400">Bu hasta için ilaç ve doz saati ekleyin.</p>
         </div>
       </div>
 
       <div class="px-4 pb-6" style="padding-bottom: calc(env(safe-area-inset-bottom, 0rem) + 1.5rem);">
         <button id="btn-ilac-ekle" type="button"
           class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3.5 text-base font-semibold text-white shadow-lg transition hover:bg-brand-700 active:scale-[0.99]">
-          + Ä°laÃ§ Ekle
+          + İlaç Ekle
         </button>
       </div>
     </section>
@@ -122,48 +122,48 @@
       <div class="modal-panel max-w-sm">
         <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3">
           <h3 id="hasta-form-baslik" class="font-semibold">Yeni Hasta</h3>
-          <button type="button" class="modal-kapat rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">âœ•</button>
+          <button type="button" class="modal-kapat rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">✕</button>
         </div>
         <div class="space-y-4 px-4 py-4">
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-600">Hasta AdÄ±</label>
-            <input id="hasta-form-ad" type="text" placeholder="Ã–rn. AyÅŸe YÄ±lmaz" autocomplete="off"
+            <label class="mb-1 block text-sm font-medium text-gray-600">Hasta Adı</label>
+            <input id="hasta-form-ad" type="text" placeholder="Örn. Ayşe Yılmaz" autocomplete="off"
               class="w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 outline-none transition focus:border-brand-500" />
           </div>
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-600">
               PIN Kodu <span class="font-normal text-gray-400">(opsiyonel, 4-6 hane)</span>
             </label>
-            <input id="hasta-form-pin" type="text" inputmode="numeric" maxlength="6" placeholder="BoÅŸ bÄ±rakÄ±lÄ±rsa PIN istenmez"
+            <input id="hasta-form-pin" type="text" inputmode="numeric" maxlength="6" placeholder="Boş bırakılırsa PIN istenmez"
               autocomplete="off"
               class="w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 outline-none transition focus:border-brand-500" />
-            <p id="hasta-form-pin-hata" class="mt-1 hidden text-xs text-red-500">PIN 4-6 hane arasÄ± olmalÄ±dÄ±r.</p>
+            <p id="hasta-form-pin-hata" class="mt-1 hidden text-xs text-red-500">PIN 4-6 hane arası olmalıdır.</p>
           </div>
         </div>
         <div class="flex gap-2 border-t border-gray-100 px-4 py-3">
-          <button type="button" class="modal-kapat flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-600 transition hover:bg-gray-200">VazgeÃ§</button>
+          <button type="button" class="modal-kapat flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-600 transition hover:bg-gray-200">Vazgeç</button>
           <button id="btn-hasta-form-kaydet" type="button"
             class="flex-1 rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white transition hover:bg-brand-700">Kaydet</button>
         </div>
       </div>
     </div>
 
-    <!-- ============ MODAL: Ä°LAÃ‡ FORM ============ -->
+    <!-- ============ MODAL: İLAÇ FORM ============ -->
     <div id="modal-ilac-form" class="modal flex hidden">
       <div class="modal-panel max-w-md">
         <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3">
-          <h3 id="ilac-form-baslik" class="font-semibold">Ä°laÃ§ Ekle</h3>
-          <button type="button" class="modal-kapat rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">âœ•</button>
+          <h3 id="ilac-form-baslik" class="font-semibold">İlaç Ekle</h3>
+          <button type="button" class="modal-kapat rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">✕</button>
         </div>
         <div class="max-h-[65vh] space-y-4 overflow-y-auto px-4 py-4">
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-600">Ä°laÃ§ AdÄ±</label>
-            <input id="ilac-form-ad" type="text" placeholder="Ã–rn. Aspirin" autocomplete="off"
+            <label class="mb-1 block text-sm font-medium text-gray-600">İlaç Adı</label>
+            <input id="ilac-form-ad" type="text" placeholder="Örn. Aspirin" autocomplete="off"
               class="w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 outline-none transition focus:border-brand-500" />
           </div>
           <div>
             <label class="mb-1 block text-sm font-medium text-gray-600">Doz Bilgisi</label>
-            <input id="ilac-form-doz" type="text" placeholder="Ã–rn. 1 tablet / 500 mg" autocomplete="off"
+            <input id="ilac-form-doz" type="text" placeholder="Örn. 1 tablet / 500 mg" autocomplete="off"
               class="w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 outline-none transition focus:border-brand-500" />
           </div>
           <div>
@@ -176,7 +176,7 @@
           </div>
         </div>
         <div class="flex gap-2 border-t border-gray-100 px-4 py-3">
-          <button type="button" class="modal-kapat flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-600 transition hover:bg-gray-200">VazgeÃ§</button>
+          <button type="button" class="modal-kapat flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-600 transition hover:bg-gray-200">Vazgeç</button>
           <button id="btn-ilac-form-kaydet" type="button"
             class="flex-1 rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white transition hover:bg-brand-700">Kaydet</button>
         </div>
@@ -188,12 +188,12 @@
       <div class="modal-panel max-w-sm">
         <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3">
           <h3 class="font-semibold">Ayarlar</h3>
-          <button type="button" class="modal-kapat rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">âœ•</button>
+          <button type="button" class="modal-kapat rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">✕</button>
         </div>
         <div class="space-y-6 px-4 py-5">
           <div>
             <div class="mb-1 flex items-center justify-between">
-              <label class="text-sm font-medium text-gray-600">Dozdan kaÃ§ dk Ã¶nce hatÄ±rlatÄ±lsÄ±n</label>
+              <label class="text-sm font-medium text-gray-600">Dozdan kaç dk önce hatırlatılsın</label>
               <span id="onerak-deger" class="text-sm font-bold text-brand-700">15 dk</span>
             </div>
             <input id="onerak-range" type="range" min="0" max="45" step="1" value="15"
@@ -201,7 +201,7 @@
             <div class="flex justify-between text-xs text-gray-400"><span>0 dk</span><span>45 dk</span></div>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-gray-600">Erteleme SÃ¼resi</label>
+            <label class="mb-1 block text-sm font-medium text-gray-600">Erteleme Süresi</label>
             <select id="ertele-select"
               class="w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 outline-none transition focus:border-brand-500">
               <option value="5">5 dk</option>
@@ -223,7 +223,7 @@
     <div id="modal-alarm" class="modal flex hidden">
       <div class="modal-panel max-w-sm text-center">
         <div class="px-4 py-6">
-          <div id="alarm-darbe" class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-3xl">â°</div>
+          <div id="alarm-darbe" class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-3xl">⏰</div>
           <p id="alarm-hasta" class="text-xs font-medium text-gray-400"></p>
           <h3 id="alarm-ilac-ad" class="text-xl font-bold text-gray-800"></h3>
           <p id="alarm-doz" class="mt-1 text-sm text-gray-500"></p>
@@ -236,19 +236,19 @@
           </button>
           <button id="btn-alarm-alindi" type="button"
             class="rounded-xl bg-brand-600 px-4 py-3 font-semibold text-white transition hover:bg-brand-700">
-            AlÄ±ndÄ± âœ“
+            Alındı ✓
           </button>
         </div>
       </div>
     </div>
 
-    <!-- ============ MODAL: GÃœN SONU Ã–ZETÄ° ============ -->
+    <!-- ============ MODAL: GÜN SONU ÖZETİ ============ -->
     <div id="modal-ozet" class="modal flex hidden">
       <div class="modal-panel max-w-sm">
         <div class="px-4 py-5 text-center">
-          <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">ğŸ‰</div>
-          <h3 class="text-lg font-bold text-gray-800">GÃ¼nÃ¼n TÃ¼m DozlarÄ± TamamlandÄ±</h3>
-          <p class="mt-1 text-sm text-gray-400">Tebrikler! BugÃ¼n planlanan tÃ¼m ilaÃ§lar alÄ±ndÄ±.</p>
+          <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">🎉</div>
+          <h3 class="text-lg font-bold text-gray-800">Günün Tüm Dozları Tamamlandı</h3>
+          <p class="mt-1 text-sm text-gray-400">Tebrikler! Bugün planlanan tüm ilaçlar alındı.</p>
         </div>
         <div id="ozet-icerik" class="max-h-[40vh] space-y-2 overflow-y-auto px-4 pb-4"></div>
         <div class="border-t border-gray-100 px-4 py-3">
@@ -262,13 +262,13 @@
     <div id="modal-onay" class="modal flex hidden">
       <div class="modal-panel max-w-sm">
         <div class="px-4 py-5 text-center">
-          <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-2xl">ğŸ—‘ï¸</div>
+          <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-2xl">🗑️</div>
           <h3 id="onay-baslik" class="text-base font-bold text-gray-800"></h3>
           <p id="onay-mesaj" class="mt-1 text-sm text-gray-500"></p>
         </div>
         <div class="flex gap-2 border-t border-gray-100 px-4 py-3">
           <button id="btn-onay-iptal" type="button"
-            class="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-600 transition hover:bg-gray-200">VazgeÃ§</button>
+            class="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-600 transition hover:bg-gray-200">Vazgeç</button>
           <button id="btn-onay-evvet" type="button"
             class="flex-1 rounded-xl bg-red-500 px-4 py-2.5 font-semibold text-white transition hover:bg-red-600">Evet, Sil</button>
         </div>
