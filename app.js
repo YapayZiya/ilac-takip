@@ -10,6 +10,7 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { App } from '@capacitor/app';
 import { ExactAlarm } from '@ilac/exact-alarm';
+import { DB_URL, API_KEY } from './firebase-config.js';
 
 (() => {
   'use strict';
@@ -37,21 +38,6 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   const harf = (ad) => (ad || '?').trim().charAt(0).toLocaleUpperCase('tr');
   const genId = () => `med_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   const genHastaId = () => `h_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
-
-  // --------------------------------------------------
-  // Firebase configuration (hardcoded)
-  // --------------------------------------------------
-  const firebaseConfig = {
-    apiKey: "AIzaSyCvwNDuE0QFD6K4OcUhJ-688_-MD9k0Jc8",
-    authDomain: "ilac-takip-da59e.firebaseapp.com",
-    databaseURL: "https://ilac-takip-da59e-default-rtdb.europe-west1.firebasedatabase.app",
-    projectId: "ilac-takip-da59e",
-    storageBucket: "ilac-takip-da59e.firebasestorage.app",
-    messagingSenderId: "466626634858",
-    appId: "1:466626634858:web:3b6a4cccf1556ae5561613"
-  };
-  const DB_URL = firebaseConfig.databaseURL;
-  const API_KEY = firebaseConfig.apiKey;
 
   // --------------------------------------------------
   // LocalStorage keys
