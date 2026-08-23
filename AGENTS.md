@@ -69,8 +69,13 @@ Build çıktıları (`www/tailwind.css`, `www/app.bundle.js`) `.gitignore`'dadı
 - **Native bildirimler:** `ilac_takip:noti` anahtarı bildirim ID → doz anahtarı eşlemesini
   tutar. Her CRUD sonrası `nativeDozBildirimleriniKur()` ile bugün + yarın için yeniden kurulur.
 - **Firebase:** Rules yalnızca `patients/$patientId` altında okuma/yazmaya izin verir
-  (üst düzey `/patients.json` okuması 401 döner). Senkron, hasta başına
-  `GET /patients/{id}` ile yapılır; yazma `PUT /patients/{id}` ile.
+  (üst düzey `/patients.json` okuması 401 döner). Bu yüzden hasta keşfi bir **kayıt defteri**
+  ile yapılır: her hasta CRUD işleminde `firebaseRegistryPush()` → `PUT /patients/__registry__`
+  = `{ ids: [...] }` yazar (aynı `$patientId` wildcard'ı altında olduğu için kurallara takılmaz).
+  `senkronizeEt()` önce `GET /patients` dener (kurallar genişletilmişse tam liste),
+  olmazsa `GET /patients/__registry__` ile ID'leri keşfeder, sonra hasta başına
+  `GET /patients/{id}` ile veriyi çeker. Yazma `PUT /patients/{id}` ile yapılır.
+  Önerilen kurallar (tam liste okuması için): `{"patients": {".read": true, "$patientId": {".write": true}}}`.
 - **Versiyonlar:** Capacitor 8.x (Java 21, Node >= 22 gerekir). `@capacitor/cli`
   devDependencies'tedir. CI: `.github/workflows/build-android.yml`.
 

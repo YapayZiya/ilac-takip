@@ -512,6 +512,7 @@ function hastaFormKaydet() {
   duzenlenenHasta = null;
   hastaListesiniCiz();
   firebasePushHasta(kaydedilenId);
+  firebaseRegistryPush();
 }
 function hastaSil(hastaId) {
   const idx = hastalar.findIndex((h) => h.id === hastaId);
@@ -532,6 +533,7 @@ function hastaSil(hastaId) {
     aktifAyarlar = { onerakDk: 15, erteleDk: 5 };
   }
   firebasePut('/patients/' + hastaId, null);
+  firebaseRegistryPush();
   hastaListesiniCiz();
 }
 
@@ -794,34 +796,62 @@ function firebasePushHasta(hastaId) {
   const durum = hastaDurum(hastaId);
   firebasePut('/patients/' + hastaId, { ad: hasta.ad, pin: hasta.pin || '', meds: durum.ilaclar, done: durum.alindi });
 }
+function firebaseRegistryPush() {
+  firebasePut('/patients/__registry__', { ids: hastalar.map((h) => h.id) });
+}
 function medListesiniBirlestir(local, cloud) {
   const map = new Map();
   local.forEach((m) => map.set(m.id, m));
   cloud.forEach((m) => { if (m && m.id) map.set(m.id, m); });
   return Array.from(map.values());
 }
+function bulguyuBirlestir(hastaId, veri) {
+  if (!veri || !veri.ad) return false;
+  const mevcut = hastalar.find((h) => h.id === hastaId);
+  if (mevcut) {
+    Object.assign(mevcut, { ad: veri.ad, pin: veri.pin || '' });
+  } else {
+    hastalar.push({ id: hastaId, ad: veri.ad, pin: veri.pin || '' });
+  }
+  if (Array.isArray(veri.meds) && veri.meds.length) {
+    kaydet(hastaIlacKey(hastaId), medListesiniBirlestir(yukle(hastaIlacKey(hastaId), []), veri.meds));
+  }
+  if (veri.done && typeof veri.done === 'object') {
+    kaydet(hastaAlindiKey(hastaId), Object.assign({}, yukle(hastaAlindiKey(hastaId), {}), veri.done));
+  }
+  return true;
+}
 async function senkronizeEt() {
   let guncellendi = false;
-  for (const hasta of hastalar) {
-    const veri = await firebaseGet('/patients/' + hasta.id);
-    if (!veri) continue;
-    if (veri.ad) {
-      Object.assign(hasta, { ad: veri.ad, pin: veri.pin || '' });
-      guncellendi = true;
-    }
-    if (Array.isArray(veri.meds) && veri.meds.length) {
-      const mevcut = yukle(hastaIlacKey(hasta.id), []);
-      kaydet(hastaIlacKey(hasta.id), medListesiniBirlestir(mevcut, veri.meds));
-      guncellendi = true;
-    }
-    if (veri.done && typeof veri.done === 'object') {
-      const mevcut = yukle(hastaAlindiKey(hasta.id), {});
-      kaydet(hastaAlindiKey(hasta.id), Object.assign({}, veri.done, mevcut));
-      guncellendi = true;
+  const islenecek = new Set();
+  let tam = null;
+
+  const tamDeneme = await firebaseGet('/patients');
+  if (tamDeneme && typeof tamDeneme === 'object' && Object.keys(tamDeneme).length) {
+    tam = tamDeneme;
+    Object.keys(tam).forEach((id) => {
+      if (id !== '__registry__' && tam[id] && tam[id].ad) islenecek.add(id);
+    });
+  }
+
+  if (!islenecek.size) {
+    const registry = await firebaseGet('/patients/__registry__');
+    if (registry && Array.isArray(registry.ids) && registry.ids.length) {
+      registry.ids.forEach((id) => islenecek.add(id));
     }
   }
+
+  hastalar.forEach((h) => islenecek.add(h.id));
+
+  for (const id of islenecek) {
+    let veri = tam && tam[id];
+    if (!veri) veri = await firebaseGet('/patients/' + id);
+    if (bulguyuBirlestir(id, veri)) guncellendi = true;
+  }
+
   if (guncellendi) {
     kaydet(K.hastalar, hastalar);
+    firebaseRegistryPush();
     hastaListesiniCiz();
     if (aktifHastaId) {
       aktifVerileriTazele();
