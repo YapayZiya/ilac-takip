@@ -284,20 +284,15 @@
 
       <div class="flex-1 space-y-6 overflow-y-auto p-5">
 
-        <!-- FIREBASE SINCANIZASYONU - İLK BÖLÜM -->
+        <!-- FIREBASE SINCANIZASYONU -->
         <section class="rounded-2xl border-2 border-brand-200 bg-brand-50 p-4 shadow-sm">
           <h2 class="mb-2 text-base font-bold text-brand-800">☁️ Gerçek Zamanlı Senkronizasyon</h2>
           <p class="mb-3 text-sm text-stone-500">Aile üyeleri uygulamayı açtıkça ilaç durumlarını görüntüler.</p>
           <div id="firebase-status" class="mb-3 text-sm">
             <span class="font-semibold text-stone-600">Durum:</span>
-            <span id="firebase-indicator" class="ml-1 text-amber-600">Yapılandırılmadı</span>
+            <span id="firebase-indicator" class="ml-1 text-emerald-600">Etkin</span>
           </div>
-          <button id="btn-firebase-config"
-            class="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border-2 border-brand-500 bg-white font-bold text-brand-700 active:scale-[.98] transition">
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M5 12h14"/></svg>
-            Firebase Yapılandır
-          </button>
-          <p class="mt-2 text-xs text-stone-500">Database URL ve API Key girin. <a href="https://console.firebase.google.com/" target="_blank" class="text-brand-600 underline">Firebase konsolu</a></p>
+          <p class="text-xs text-stone-500">Firebase Realtime Database ile senkronize ediliyor.</p>
         </section>
 
         <!-- ALARM -->
@@ -355,8 +350,8 @@
         </section>
 
         <div class="space-y-2 pt-2">
-          <p class="text-center text-xs text-stone-400">📱 <strong>Firebase etkinse:</strong> Veriler bulutda saklanır ve aile üyeleri paylaşır.</p>
-          <p class="text-center text-xs text-stone-500">📂 <strong>Firebase kapalı:</strong> Sadece cihazınızda LocalStorage'da tutar.</p>
+          <p class="text-center text-xs text-stone-500">☁️ <strong>Firebase:</strong> Otomatik olarak veri senkronizasyonu yapılır.</p>
+          <p class="text-center text-xs text-stone-400">📂 <strong>Offline:</strong> Internet yoksa LocalStorage kullanılır.</p>
         </div>
       </div>
     </div>

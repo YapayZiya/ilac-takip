@@ -1,13 +1,9 @@
 /* ===========================================================
    İLAÇ TAKİP SİSTEMİ — app.js
    ----------------------------------------------------------
-   Adım 1-2: iskelet + arayüz + PWA
-   Adım 3  : LocalStorage CRUD (çoklu hasta, kişiye özel anahtar)
-   Adım 4  : Saat kontrolü + Alarm / Bildirim / Ses (önce uyarı + ayarlanabilir erteleme)
-   Ek      : Çoklu hasta + PIN, Veri içe/dışa aktarım (yedek)
+   Offline-First: Firebase'den veya LocalStorage'dan veri çeker
    =========================================================== */
 
-// Capacitor paketleri (esbuild ile www/app.bundle.js icine derlenir)
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
@@ -18,9 +14,8 @@ import { ExactAlarm } from '@ilac/exact-alarm';
 (() => {
   'use strict';
 
-  const isNative = Capacitor.isNativePlatform(); // native (Capacitor) ortamda true, tarayicida false
+  const isNative = Capacitor.isNativePlatform();
 
-  /* ================= YARDIMCILAR ================= */
   const $  = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -43,19 +38,28 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   const genId = () => `med_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
   const genHastaId = () => `h_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
-  /* ================= TOAST ================= */
-  let toastTimer = null;
-  function toast(msg) {
-    const el = $('#toast'); if (!el) return;
-    el.textContent = msg; el.classList.remove('opacity-0');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.add('opacity-0'), 2400);
-  }
+  // --------------------------------------------------
+  // Firebase configuration (hardcoded)
+  // --------------------------------------------------
+  const firebaseConfig = {
+    apiKey: "AIzaSyCvwNDuE0QFD6K4OcUhJ-688_-MD9k0Jc8",
+    authDomain: "ilac-takip-da59e.firebaseapp.com",
+    databaseURL: "https://ilac-takip-da59e-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "ilac-takip-da59e",
+    storageBucket: "ilac-takip-da59e.firebasestorage.app",
+    messagingSenderId: "466626634858",
+    appId: "1:466626634858:web:3b6a4cccf1556ae5561613"
+  };
+  const DB_URL = firebaseConfig.databaseURL;
+  const API_KEY = firebaseConfig.apiKey;
 
-  /* ================= DEPOLAMA ================= */
+  // --------------------------------------------------
+  // LocalStorage keys
+  // --------------------------------------------------
   const K_LIST  = 'ilac_takip:hastalar';
   const K_AKTIF = 'ilac_takip:aktif';
   const K_DEFAULT = { onerakDk: 15, erteleDk: 5 };
-  const SON_PENCERE_DK = 120; // saatten sonra en fazla kaç dk alarm
+  const SON_PENCERE_DK = 120;
   const ADIM_S = 15000;
 
   function readJSON(key, fallback) {
@@ -64,7 +68,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   }
   function writeJSON(key, val) {
     try { localStorage.setItem(key, JSON.stringify(val)); }
-    catch (e) { console.warn('Yazım başarısız:', e); toast('Kaydedilemedi (depolama dolu olabilir).'); }
+    catch (e) { console.warn('Yazım başarısız:', e); }
   }
   const medKey  = (pid) => `ilac_takip:ilac:${pid}`;
   const doneKey = (pid) => `ilac_takip:alindi:${pid}`;
@@ -78,176 +82,142 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   function getAyar() { if (!aktifPid) return { ...K_DEFAULT }; return Object.assign({}, K_DEFAULT, readJSON(setKey(aktifPid), {})); }
   function saveAyar(pid, a) { if (!pid) return; writeJSON(setKey(pid), a); }
 
-  // --- Kişiye (aktif hasta) özel veri ---
   function getMeds() { if (!aktifPid) return []; const m = readJSON(medKey(aktifPid), []); return Array.isArray(m) ? m : []; }
   function setMeds(a) { if (!aktifPid) return; writeJSON(medKey(aktifPid), a); }
   function getDone() { if (!aktifPid) return {}; const d = readJSON(doneKey(aktifPid), {}); return (d && typeof d === 'object') ? d : {}; }
   function setDone(d) { if (!aktifPid) return; writeJSON(doneKey(aktifPid), d); }
 
-  let aktifPid = null;   // aktif hasta id'si
-  let aktifHasta = null; // aktif hasta nesnesi
+  let aktifPid = null;
+  let aktifHasta = null;
 
-  /* ================= FIREBASE SYNC ================= */
-  const FIREBASE_DB_URL = 'https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com';
-  let firebasePolling = null;
-
-  function firebaseSyncEnabled() { return !!localStorage.getItem('ilac_takip:firebaseconfig'); }
-
-  function getFirebaseConfig() {
-    const c = localStorage.getItem('ilac_takip:firebaseconfig');
-    return c ? JSON.parse(c) : null;
-  }
-
-  function saveFirebaseConfig(cfg) {
-    localStorage.setItem('ilac_takip:firebaseconfig', JSON.stringify(cfg));
-  }
-
-  async function syncToFirebaseRest(pid, data, type) {
-    const cfg = getFirebaseConfig();
-    if (!cfg || !data) return false;
+  // --------------------------------------------------
+  // Firebase sync functions
+  // --------------------------------------------------
+  async function fetchFromFirebase(path) {
+    if (!navigator.onLine) return null;
     try {
-      const url = `${cfg.dbUrl}/patients/${pid}/${type}.json?auth=${cfg.apiKey}`;
-      await fetch(url, { method: 'PUT', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } });
-      return true;
-    } catch (e) {
-      console.warn('Firebase sync hatası:', e);
-      return false;
-    }
-  }
-
-  async function pullFromFirebase(pid, type) {
-    const cfg = getFirebaseConfig();
-    if (!cfg) return null;
-    try {
-      const url = `${cfg.dbUrl}/patients/${pid}/${type}.json?auth=${cfg.apiKey}`;
+      const url = `${DB_URL}${path}.json?auth=${API_KEY}`;
       const res = await fetch(url);
       return res.ok ? res.json() : null;
     } catch (e) {
-      console.warn('Firebase pull hatası:', e);
+      console.warn('Firebase fetch hatası:', e);
       return null;
     }
   }
 
-  function startFirebasePolling() {
-    if (!firebaseSyncEnabled()) return;
-    stopFirebasePolling();
-    const poll = async () => {
-      if (!aktifPid) return;
-      const [medsFromDb, doneFromDb] = await Promise.all([
-        pullFromFirebase(aktifPid, 'meds'),
-        pullFromFirebase(aktifPid, 'done')
+  async function pushToFirebase(path, data) {
+    if (!navigator.onLine) return false;
+    try {
+      const url = `${DB_URL}${path}.json?auth=${API_KEY}`;
+      await fetch(url, { method: 'PUT', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } });
+      return true;
+    } catch (e) {
+      console.warn('Firebase push hatası:', e);
+      return false;
+    }
+  }
+
+  async function loadHastalarFromFirebase() {
+    const data = await fetchFromFirebase('/patients');
+    if (data) {
+      const hastalar = Object.entries(data).map(([id, p]) => ({ id, ...p }));
+      saveHastalar(hastalar);
+      return hastalar;
+    }
+    return getHastalar();
+  }
+
+  async function loadMedsAndDoneFromFirebase(pid) {
+    const [medsData, doneData] = await Promise.all([
+      fetchFromFirebase(`/patients/${pid}/meds`),
+      fetchFromFirebase(`/patients/${pid}/done`)
+    ]);
+    if (medsData) writeJSON(medKey(pid), medsData);
+    if (doneData) writeJSON(doneKey(pid), doneData);
+  }
+
+  async function syncAllToFirebase() {
+    const hastalar = getHastalar();
+    for (const h of hastalar) {
+      const meds = readJSON(medKey(h.id), []);
+      const done = readJSON(doneKey(h.id), {});
+      await Promise.all([
+        pushToFirebase(`/patients/${h.id}/meds`, meds),
+        pushToFirebase(`/patients/${h.id}/done`, done)
       ]);
-      if (medsFromDb) { writeJSON(medKey(aktifPid), medsFromDb); }
-      if (doneFromDb) { writeJSON(doneKey(aktifPid), doneFromDb); }
-    };
-    firebasePolling = setInterval(poll, 30000);
-    poll();
+    }
   }
 
-  function stopFirebasePolling() {
-    if (firebasePolling) { clearInterval(firebasePolling); firebasePolling = null; }
+  // --------------------------------------------------
+  // Toasts
+  // --------------------------------------------------
+  let toastTimer = null;
+  function toast(msg) {
+    const el = $('#toast'); if (!el) return;
+    el.textContent = msg; el.classList.remove('opacity-0');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.add('opacity-0'), 2400);
   }
 
-  function syncLocalToFirebase() {
-    if (!firebaseSyncEnabled() || !aktifPid) return;
-    syncToFirebaseRest(aktifPid, getMeds(), 'meds');
-    syncToFirebaseRest(aktifPid, getDone(), 'done');
-  }
-
-  /* ==========================================================
-     ADIM 3 — CRUD (aktif hasta)
-     ========================================================== */
-  function ilacKaydet(v) { const m = getMeds(); m.push({ id: genId(), ad: v.ad, doz: v.doz, times: v.times, updatedAt: Date.now() }); setMeds(m); syncLocalToFirebase(); }
-  function ilacGuncelle(id, v) { const m = getMeds(); const x = m.find((o) => o.id === id); if (x) { x.ad = v.ad; x.doz = v.doz; x.times = v.times; x.updatedAt = Date.now(); } setMeds(m); syncLocalToFirebase(); }
+  // --------------------------------------------------
+  // CRUD (aktif hasta)
+  // --------------------------------------------------
+  function ilacKaydet(v) { const m = getMeds(); m.push({ id: genId(), ad: v.ad, doz: v.doz, times: v.times, updatedAt: Date.now() }); setMeds(m); pushToFirebase(`/patients/${aktifPid}/meds`, getMeds()); }
+  function ilacGuncelle(id, v) { const m = getMeds(); const x = m.find((o) => o.id === id); if (x) { x.ad = v.ad; x.doz = v.doz; x.times = v.times; x.updatedAt = Date.now(); } setMeds(m); pushToFirebase(`/patients/${aktifPid}/meds`, getMeds()); }
   function ilacSil(id) {
     setMeds(getMeds().filter((m) => m.id !== id));
     const d = getDone(); Object.keys(d).forEach((k) => { if (k.split('|')[0] === id) delete d[k]; }); setDone(d);
-    syncLocalToFirebase();
+    pushToFirebase(`/patients/${aktifPid}/meds`, getMeds());
   }
   function ilacAlindi(id, time, pid) {
     const pidUse = pid || aktifPid; if (!pidUse) return;
     const d = readJSON(doneKey(pidUse), {});
     d[`${id}|${todayStr()}|${time}`] = Date.now(); pruneDone(d); writeJSON(doneKey(pidUse), d);
-    syncToFirebaseRest(pidUse, d, 'done');
+    pushToFirebase(`/patients/${pidUse}/done`, d);
   }
   function pruneDone(d) { const cut = Date.now() - 14 * 86400000; Object.keys(d).forEach((k) => { if (d[k] < cut) delete d[k]; }); }
 
-  /* ==========================================================
-     NATIVE (CAPACITOR) — Local Notifications
-     Sadece native (Capacitor) ortamda etkilidir. Tarayicida
-     isNativePlatform() false oldugu icin bu kismi atlar ve
-     web tarafi alarmi (modal + ses + Notification) kullanimda
-     kalmaya devam eder. Android'de ise ilaci saatinde (hatta
-     uygulama arka plandayken) native bildirimle hatirlatir.
-     ========================================================== */
-  const NOTI_KEY = 'ilac_takip:noti'; // bildirimi id -> "medId|gg|saat" haritasi
-  let nativeAktif = false;            // LocalNotifications icin izin alindi mi
-  let exactAlarmToastShown = false;   // 'Tam zamanlı alarm etkin' toast'unu bir kez göster
+  // --------------------------------------------------
+  // Native notifications
+  // --------------------------------------------------
+  const NOTI_KEY = 'ilac_takip:noti';
+  let nativeAktif = false;
+  let exactAlarmToastShown = false;
 
   async function setupNative() {
-    console.log('🔔 setupNative() BASLADI');
     if (!isNative) return;
     try {
       LocalNotifications.addListener('localNotificationsActionPerformed', onNotiAction);
       let perm = await LocalNotifications.checkPermissions();
       if (!perm || perm.display !== 'granted') perm = await LocalNotifications.requestPermissions();
       nativeAktif = !!(perm && perm.display === 'granted');
-      toast(nativeAktif ? 'Arka plan bildirimleri hazır.' : 'Arka plan bildirim izni kapalı.');
       if (nativeAktif) {
         await LocalNotifications.createChannel({
-          id: 'med-reminders',
-          name: 'İlaç Hatırlatıcıları',
-          description: 'İlaç zamanı geldiğinde çalacak alarm ve bildirimler.',
-          importance: 5,
-          visibility: 'public',
-          sound: 'default',
-          vibration: true,
-        }).catch((e) => console.warn('Kanal olusturma hatasi:', e));
+          id: 'med-reminders', name: 'İlaç Hatırlatıcıları',
+          description: 'İlaç zamanı geldiğinde çalacak alarm.',
+          importance: 5, visibility: 'public', sound: 'default', vibration: true,
+        }).catch(() => {});
         await tamBildirimIzniKontrol();
         await exactAlarmKazandir();
         await pilOptimizasyonKontrol();
-        if (aktifPid) {
-          console.log('🔔 setupNative sonrasi notiPlanla() cagriliyor...');
-          await notiPlanla();
-          let r;
-          try { r = await ExactAlarm.canSchedule(); } catch { r = null; }
-          if (r && r.canSchedule && !exactAlarmToastShown) {
-            exactAlarmToastShown = true;
-            toast('Tam zamanlı alarm etkin — arka planda bile çalışacak.');
-          }
-        }
         App.addListener('resume', onAppResume);
         App.addListener('backButton', onBackButton);
       }
-    } catch (e) {
-      console.warn('LocalNotifications hazırlanamadı:', e);
-      nativeAktif = false;
-    }
+    } catch (e) { nativeAktif = false; }
   }
 
   function onBackButton() {
     const ayarPanel = $('#panel-ayar');
-    if (ayarPanel && !ayarPanel.classList.contains('hidden')) {
-      ayarKapa();
-    } else if (!$('#modal-summary').classList.contains('hidden')) {
-      $('#modal-summary').classList.add('hidden');
-      $('#modal-summary').classList.remove('flex');
-    } else if (!$('#modal-alarm').classList.contains('hidden')) {
-      modalGizle();
-    }
+    if (ayarPanel && !ayarPanel.classList.contains('hidden')) ayarKapa();
+    else if (!$('#modal-summary').classList.contains('hidden')) { $('#modal-summary').classList.add('hidden'); $('#modal-summary').classList.remove('flex'); }
+    else if (!$('#modal-alarm').classList.contains('hidden')) modalGizle();
   }
 
   async function pilOptimizasyonKontrol() {
     if (!isNative || !nativeAktif) return;
     try {
       const res = await ExactAlarm.requestIgnoreBatteryOptimizations();
-      if (res && res.opened) {
-        console.log('Pil optimizasyonu ayarlari acildi, kullaniciyi bilgilendir.');
-        toast('Pil optimizasyonunu kapatmak için ayarlardan "İzin ver" deyin.');
-      }
-    } catch (e) {
-      console.warn('Pil optimizasyonu istenemedi:', e);
-    }
+      if (res && res.opened) toast('Pil optimizasyonunu kapatmak için ayarlardan "İzin ver" deyin.');
+    } catch (e) {}
   }
 
   function notiIdForKey(k) {
@@ -264,7 +234,6 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     return null;
   }
 
-  // Bildirimdeki "Alindi" aksiyonu: dozu alindi olarak isar, bildirimi kapatir.
   async function onNotiAction(e) {
     const n = e && e.notification;
     if (!n || e.actionId !== 'taken') return;
@@ -282,399 +251,87 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     toast('Alındı olarak işaretlendi.');
   }
 
-  // Android 13+ (API 33) POST_NOTIFICATIONS izni kontrol et.
   async function tamBildirimIzniKontrol() {
     if (!isNative || !nativeAktif) return;
     let r;
     try { r = await ExactAlarm.canSchedule(); } catch { return; }
     if (r && r.needsNotifyPermission) {
-      console.warn('🚫 POST_NOTIFICATIONS izni eksik — Android 13+ cihazlarda bildirimler CALISMAZ.');
-      toast('⚠ Bildirim izni gerekli. Lütfen onaylayın.');
-      try { await ExactAlarm.requestNotifyPermission(); } catch (e) { console.warn('POST_NOTIFICATIONS istenemedi:', e); }
-    } else if (r && r.canNotify) {
-      console.log('✅ POST_NOTIFICATIONS izni OK.');
+      toast('⚠ Bildirim izni gerekli.');
+      try { await ExactAlarm.requestNotifyPermission(); } catch (e) {}
     }
   }
 
-  // KOKEN COZUM — Android 12+ (API 31) Exact Alarm izni.
-  // Capacitor, canScheduleExactAlasks()==false ise alarmi NON-EXACT
-  // (setAndAllowWhileIdle) kurar; bu, Doze/pil-tasarrufunda ERTELENIR ve
-  // saat gelince CALMAZ. Buradan CustomPlugin ile:
-  //   1) Gercek AlarmManager.canScheduleExactAlams() degerini al
-  //   2) Izin yoksa kullaniciyi DOGRU ayar sayfasina gonder (ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-  //   3) Android 13+ POST_NOTIFICATIONS iznini kontrol et + iste
-  // Kullanici "Izinle" deyip geri donunce onAppResume() alarmlari EXACT
-  // olarak yeniden planlar.
   async function exactAlarmKazandir() {
     if (!isNative || !nativeAktif) return;
     let r;
-    try {
-      r = await ExactAlarm.canSchedule();
-    } catch (e) {
-      console.warn('ExactAlarm plugin cagrilirken hata (plugin yok mu?):', e);
-      return;
-    }
-    if (r && r.canSchedule) {
-      console.log('✅ Exact Alarm izni OK (canScheduleExactAlams=true) → alarmlar EXACT kurulacak.');
-      return;
-    }
-    console.warn('🚫 Exact Alarm izni EKSİK — DOGRU ayar sayfasini aciyorum. Izinsiz alarmlar NON-EXACT kalir (Doze\'da ertelenebilir).');
-    toast('⚠ Arka plandaki alarm icin "Tam Zamanli Alarm" izni gerekli. Önünüze gelen ekranda "İzinle" deyin.');
-    try {
-      const res = await ExactAlarm.request();
-      console.log('Exact alarm ayarlar sayfası açıldı:', res);
-    } catch (e) {
-      console.error('Exact alarm ayarlar sayfası açılamadı → manuel yol: Ayarlar → Uygulamalar → İlaç Takip → "Tam zamanlı alarm". Hata:', e);
-    }
+    try { r = await ExactAlarm.canSchedule(); } catch (e) { return; }
+    if (r && r.canSchedule) return;
+    toast('⚠ Tam Zamanlı Alarm izni gerekli.');
+    try { await ExactAlarm.request(); } catch (e) {}
   }
 
-  // Kullanici izin sayfasindan geri donunce: izni tekrar kontrol et,
-  // alindiysa alarmlari EXACT olarak yeniden kurgula.
   async function onAppResume() {
     if (!isNative || !nativeAktif) return;
     let r;
     try { r = await ExactAlarm.canSchedule(); } catch { return; }
-    if (r && r.canSchedule) {
-      if (aktifPid) {
-        console.log('✅ Exact Alarm izni ALINDI → alarmlar EXACT olarak yeniden planlaniyor.');
-        await notiPlanla();
-      }
-    } else if (r && r.exactAlarmRequired) {
-      console.warn('⚠ Exact Alarm izni hâlâ eksik. Ayarlar → Uygulamalar → İlaç Takip → "Tam zamanlı alarm".');
-    }
-    if (r && r.needsNotifyPermission) {
-      console.warn('⚠ POST_NOTIFICATIONS izni hâlâ eksik. Ayarlar → Uygulamalar → İlaç Takip → izni açın.');
-    }
+    if (r && r.canSchedule && aktifPid) await notiPlanla();
   }
 
-  // Aktif hastanin dozlarini sonraki olusumuna (bugun degilse yarin) planlar.
-  // Her degisiklikte once tumu iptal, sonra aktif hasta icin yeniden planlar.
-  // KOSEN KURALLAR: ISO-8601 string at, allowWhileIdle:true, benzersiz int id,
-  // agresif debug log + exact-alarm hatasi tespiti.
   async function notiPlanla() {
-    console.log('🔔 notiPlanla() BASLADI - isNative:', isNative, 'nativeAktif:', nativeAktif, 'aktifPid:', aktifPid);
-    if (!(isNative && nativeAktif)) {
-      console.log('notiPlanla atlandi: native=', isNative, 'nativeAktif=', nativeAktif);
-      return;
-    }
+    if (!(isNative && nativeAktif)) return;
     try {
       const prev = readJSON(NOTI_KEY, {});
       const prevIds = Object.keys(prev).map(Number).filter((id) => !Number.isNaN(id));
-      if (prevIds.length) {
-        console.log('notiPlanla: onceki bildirimler iptal ediliyor, adet=', prevIds.length);
-        try { await LocalNotifications.cancel({ notifications: prevIds.map((id) => ({ id })) }); } catch (e) { console.warn('onceki iptal hatasi:', e); }
-      }
+      if (prevIds.length) { try { await LocalNotifications.cancel({ notifications: prevIds.map((id) => ({ id })) }); } catch (e) {} }
       const meds = getMeds();
-      console.log('notiPlanla: ilac sayisi=', meds.length, meds.map(x => ({ id: x.id, ad: x.ad, times: x.times })));
       const ayar = getAyar();
-      console.log('notiPlanla: ayar=', ayar);
       const done = getDone();
       const list = [];
       const map = {};
       for (const m of meds) {
-        if (!Array.isArray(m.times) || !m.times.length) {
-          console.warn('notiPlanla: zaman bulunamadi ->', m.ad, m.times);
-          continue;
-        }
+        if (!Array.isArray(m.times) || !m.times.length) continue;
         for (const time of m.times) {
           const raw = String(time).trim();
-          if (!raw) {
-            console.warn('notiPlanla: bos zaman atlandi ->', m.ad);
-            continue;
-          }
+          if (!raw) continue;
           const t0 = parseTime(raw);
           const todayTaken = !!done[`${m.id}|${todayStr()}|${raw}`];
-          const hedef = (todayTaken || t0.getTime() <= Date.now())
-            ? new Date(t0.getTime() + 86400000)
-            : t0;
+          const hedef = (todayTaken || t0.getTime() <= Date.now()) ? new Date(t0.getTime() + 86400000) : t0;
           let hedefZaman = hedef.getTime() - ayar.onerakDk * 60000;
           if (hedefZaman < Date.now()) hedefZaman = Date.now();
           const key = `${m.id}|${dateStr(hedef)}|${raw}`;
           const yeniId = Math.abs(Math.floor(hedefZaman / 1000) + (notiIdForKey(key) % 100000));
           map[yeniId] = key;
-          console.log('🔔 ALARM PLANLANDI:', {
-            id: yeniId,
-            ilac: m.ad,
-            saat: raw,
-            hedefZaman: new Date(hedefZaman).toLocaleString('tr-TR'),
-            isoString: new Date(hedefZaman).toISOString(),
-            allowWhileIdle: true,
-          });
           list.push({
-            id: yeniId,
-            title: m.ad,
-            body: `${raw} · ${m.doz || 'doz'}`,
-            smallIcon: 'ic_stat_notify',
-            color: '#0d9488',
-            channelId: 'med-reminders',
-            importance: 5,
-            priority: 4,
-            visibility: 'public',
-            vibrationPattern: [0, 300, 200, 300, 200, 300],
-            allowWhileIdle: true,
+            id: yeniId, title: m.ad, body: `${raw} · ${m.doz || 'doz'}`,
+            smallIcon: 'ic_stat_notify', color: '#0d9488', channelId: 'med-reminders',
+            importance: 5, priority: 4, visibility: 'public',
+            vibrationPattern: [0, 300, 200, 300, 200, 300], allowWhileIdle: true,
             schedule: { at: new Date(hedefZaman).toISOString() },
             actions: [{ id: 'taken', type: 'button', title: 'Alındı ✓' }],
           });
         }
       }
-      console.log('notiPlanla: toplam planlanacak bildirim=', list.length);
-      if (!list.length) {
-        toast('Planlanacak alarm yok. İlaç saatlerini kontrol edin.');
-        writeJSON(NOTI_KEY, {});
-        return;
-      }
+      if (!list.length) { writeJSON(NOTI_KEY, {}); return; }
       const fresh = new Set(Object.keys(map));
       Object.keys(prev).forEach((k) => { if (!fresh.has(String(k))) delete prev[k]; });
       Object.assign(prev, map);
       writeJSON(NOTI_KEY, prev);
       await LocalNotifications.schedule({ notifications: list });
-      console.log('✅ ALARM PLANLAMA TAMAM — schedule() basarili, toplam', list.length, 'bildirim.');
-      toast('Alarmlar planlandı.');
-    } catch (e) {
-      const msg = String((e && e.message) || e || '');
-      console.error('❌ ALARM PLANLANAMADI —', e);
-      if (/EXACT_ALARM|startAlarm|SecurityException|permission/i.test(msg)) {
-        console.error('🚫 Neden: Tam Zamanlı Alarm (SCHEDULE_EXACT_ALARM) izni eksik. Android Ayarlar → Uygulamalar → İlaç Takip → izni açın.');
-        toast('⚠ Tam Zamanlı Alarm izni eksik. Android Ayarlar\'dan verin.');
-      } else {
-        toast('Bildirimler planlanamadı: ' + msg);
-      }
-    }
+    } catch (e) { console.error('Alarm planlanamadı:', e); }
   }
 
-  async function testNotiGonder() {
-    if (!(isNative && nativeAktif)) { toast('Native bildirim açık değil. Önce zil ikona dokunup izin verin.'); return; }
-    try {
-      const at = new Date(Date.now() + 5000);
-      console.log('TEST BİLDİRİMİ planlandı, at (ISO):', at.toISOString());
-      await LocalNotifications.schedule({
-        notifications: [{
-          id: 999999,
-          title: 'Test Bildirimi',
-          body: 'Bildirim sistemi çalışıyor! Bu bir test.',
-          smallIcon: 'ic_stat_notify',
-          color: '#0d9488',
-          channelId: 'med-reminders',
-          importance: 5,
-          priority: 4,
-          visibility: 'public',
-          vibrationPattern: [0, 300, 200, 300, 200, 300],
-          allowWhileIdle: true,
-          schedule: { at: at.toISOString() },
-        }]
-      });
-      toast('5 sn içinde test bildirimi gelecek.');
-    } catch (e) {
-      console.warn('Test bildirimi gönderilemedi:', e);
-      toast('Test bildirimi gönderilemedi: ' + (e.message || e));
-    }
-  }
-
-  async function debugNotiGoster() {
-    if (!(isNative && nativeAktif)) { toast('Native bildirim açık değil.'); return; }
-    try {
-      const { notifications } = await LocalNotifications.getPending();
-      console.log('Bekleyen Bildirimler (getPending):', JSON.stringify(notifications, null, 2));
-      if (!notifications.length) { toast('Android tarafında bekleyen bildirim yok.'); return; }
-      const lines = notifications.map((n, i) =>
-        `${i + 1}. id=${n.id}  "${n.title}"  ${n.body || ''}  priority=${n.priority}  visibility=${n.visibility}  vibration=${JSON.stringify(n.vibrationPattern)}`
-      );
-      alert(`Android'de bekleyen bildirimler (${notifications.length}):\n\n${lines.join('\n\n')}`);
-    } catch (e) {
-      console.warn('Bekleyen bildirimler alınamadı:', e);
-      toast('Bekleyen bildirimler alınamadı: ' + e.message);
-    }
-  }
-
-  async function debugNotiDurum() {
-    const satir = [];
-    satir.push(`isNative: ${isNative}`);
-    satir.push(`nativeAktif: ${nativeAktif}`);
-    const meds = getMeds();
-    satir.push(`İlaç sayisi: ${meds.length}`);
-    if (meds.length) {
-      satir.push(`İlaçlar: ${JSON.stringify(meds.map(x => ({ id: x.id, ad: x.ad, times: x.times })))}`);
-    }
-    const done = getDone();
-    satir.push(`Alinan kayit: ${Object.keys(done).length}`);
-    if (isNative) {
-      try {
-        const perm = await LocalNotifications.checkPermissions();
-        satir.push(`LocalNotifications.display: ${perm?.display}`);
-        const r = await ExactAlarm.canSchedule();
-        satir.push(`ExactAlarm.canSchedule: ${r?.canSchedule}`);
-        satir.push(`ExactAlarm.needsPermission: ${r?.needsPermission}`);
-        satir.push(`ExactAlarm.exactAlarmRequired: ${r?.exactAlarmRequired}`);
-        satir.push(`ExactAlarm.canNotify: ${r?.canNotify}`);
-        satir.push(`ExactAlarm.needsNotifyPermission: ${r?.needsNotifyPermission}`);
-      } catch (e) {
-        satir.push(`Plugin hatasi: ${e.message || e}`);
-      }
-    }
-    const { notifications } = await LocalNotifications.getPending().catch(() => ({ notifications: [] }));
-    satir.push(`Bekleyen bildirim: ${notifications.length}`);
-    satir.push(`Aktif hasta: ${aktifPid || 'yok'}`);
-    satir.push(`Aktif hasta ad: ${aktifHasta?.ad || 'yok'}`);
-    console.log('🔍 BILDIRIM TANILAMA:\n' + satir.join('\n'));
-    alert('Tanılama:\n\n' + satir.join('\n'));
-  }
-
-  function listeyiCiz() {
-    const list = $('#med-list'), empty = $('#empty-state');
-    const meds = getMeds(), done = getDone(), now = new Date(), ds = todayStr();
-
-    const inst = [];
-    for (const m of meds) {
-      for (const time of m.times) {
-        const isDone = !!done[`${m.id}|${ds}|${time}`];
-        const overdue = !isDone && now >= parseTime(time);
-        inst.push({ med: m, time, isDone, overdue });
-      }
-    }
-    inst.sort((a, b) => a.time === b.time ? a.med.ad.localeCompare(b.med.ad, 'tr') : a.time.localeCompare(b.time));
-
-    list.innerHTML = '';
-    if (!inst.length) {
-      list.classList.add('hidden'); empty.classList.remove('hidden'); empty.classList.add('flex');
-      ozetiGuncelle(0, 0); return;
-    }
-    empty.classList.add('hidden'); empty.classList.remove('flex'); list.classList.remove('hidden');
-
-    const gosterilen = new Set();
-    for (const it of inst) {
-      const first = !gosterilen.has(it.med.id);
-      if (first) gosterilen.add(it.med.id);
-      list.appendChild(kartOlustur(it, first, done));
-    }
-    ozetiGuncelle(inst.length, inst.filter((i) => i.isDone).length);
-
-    const pending = inst.filter((i) => !i.isDone);
-    if (pending.length) {
-      const sonBekleyen = pending[pending.length - 1];
-      const kart = list.querySelector(`[data-time="${sonBekleyen.time}"][data-med="${sonBekleyen.med.id}"]`);
-      if (kart) kart.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }
-
-  function kartOlustur(it, firstMed, done) {
-    const { med, time, isDone, overdue } = it;
-    const durum = isDone ? 'done' : overdue ? 'overdue' : 'pending';
-    const el = document.createElement('article');
-    el.className = `med-card flex items-center gap-3 rounded-2xl border border-l-4 p-4 ` + {
-      done: 'border-emerald-100 border-l-emerald-500 bg-emerald-50',
-      overdue: 'border-rose-100 border-l-rose-500 bg-rose-50 is-overdue',
-      pending: 'border-stone-100 border-l-amber-400 bg-white shadow-sm',
-    }[durum];
-    el.dataset.time = time;
-    el.dataset.med = med.id;
-
-    const rozetArk = isDone ? 'bg-emerald-100 text-emerald-700' : overdue ? 'bg-rose-100 text-rose-700' : 'bg-amber-50 text-amber-700';
-    const rozetYazi = isDone ? 'Alındı' : overdue ? 'Geçti' : 'Bekleniyor';
-    const adRengi = isDone ? 'text-stone-700' : overdue ? 'text-rose-900' : 'text-stone-800';
-    const dozRengi = overdue ? 'text-rose-700/80' : 'text-stone-500';
-
-    let gosterilenZaman = time;
-    if (isDone && done) {
-      const takenKey = `${med.id}|${todayStr()}|${time}`;
-      const takenTs = done[takenKey];
-      if (takenTs) {
-        const td = new Date(takenTs);
-        gosterilenZaman = `${pad(td.getHours())}:${pad(td.getMinutes())}`;
-      }
-    }
-
-    let kontrol;
-    if (isDone) {
-      kontrol = `<div class="flex h-11 min-w-[52px] shrink-0 items-center justify-center rounded-xl bg-emerald-500 px-3 text-white shadow" title="Alındı">
-        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-      </div>`;
-    } else {
-      const btn = overdue ? 'bg-rose-600 text-white' : 'border-2 border-emerald-500 bg-white text-emerald-600';
-      kontrol = `<button type="button" data-take title="Alındı işaretle"
-        class="flex min-h-[44px] min-w-[64px] shrink-0 items-center justify-center rounded-xl px-4 text-sm font-bold active:scale-95 transition ${btn}">Alındı</button>`;
-    }
-
-    const eylemler = firstMed ? `
-      <div class="flex shrink-0 gap-1">
-        <button type="button" data-edit aria-label="Düzenle" title="Düzenle"
-          class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 hover:bg-stone-100 hover:text-stone-600 active:scale-95 transition">
-          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-        </button>
-        <button type="button" data-del aria-label="Sil" title="Sil"
-          class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 hover:bg-rose-100 hover:text-rose-600 active:scale-95 transition">
-          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-        </button>
-      </div>` : '';
-
-    el.innerHTML = `
-      <div class="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-xl ${rozetArk}">
-        <span class="text-lg font-bold leading-none">${gosterilenZaman}</span>
-        <span class="mt-1 text-[11px] font-semibold">${rozetYazi}</span>
-      </div>
-      <div class="min-w-0 flex-1">
-        <h3 class="truncate text-lg font-semibold ${adRengi}">${esc(med.ad)}</h3>
-        <p class="truncate text-sm ${dozRengi}">${esc(med.doz || 'doz')} · Günde ${med.times.length}</p>
-      </div>
-      ${eylemler}
-      ${kontrol}
-    `;
-
-    el.querySelector('[data-take]')?.addEventListener('click', () => almIsaretle(med, time));
-    el.querySelector('[data-edit]')?.addEventListener('click', () => panelAcDuzenle(med));
-    el.querySelector('[data-del]')?.addEventListener('click', () => {
-      if (window.confirm(`"${med.ad}" ilacını silmek istediğinize emin misiniz?`)) { ilacSil(med.id); listeyiCiz(); notiPlanla(); toast('İlaç silindi.'); }
-    });
-    return el;
-  }
-
-  function ozetiGuncelle(toplam, alinan) {
-    $('#summary-total').textContent = toplam;
-    $('#summary-pending').textContent = Math.max(0, toplam - alinan);
-    $('#summary-done').textContent = alinan;
-  }
-
-  function gunSonuOzetGoster() {
-    const meds = getMeds(), done = getDone(), ds = todayStr();
-    const body = $('#summary-body');
-    body.innerHTML = '';
-    if (!meds.length) { $('#modal-summary').classList.add('hidden'); $('#modal-summary').classList.remove('flex'); return; }
-    const lines = [];
-    for (const m of meds) {
-      for (const time of m.times) {
-        const key = `${m.id}|${ds}|${time}`;
-        const takenTs = done[key];
-        if (takenTs) {
-          const td = new Date(takenTs);
-          lines.push(`<div class="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2"><span class="font-semibold text-emerald-800">${esc(m.ad)} ${time}</span><span class="text-emerald-700">Alındı ${pad(td.getHours())}:${pad(td.getMinutes())}</span></div>`);
-        } else {
-          lines.push(`<div class="flex items-center justify-between rounded-xl bg-rose-50 px-3 py-2"><span class="font-semibold text-rose-800">${esc(m.ad)} ${time}</span><span class="text-rose-700">Atlandı</span></div>`);
-        }
-      }
-    }
-    body.innerHTML = lines.join('');
-    $('#modal-summary').classList.remove('hidden');
-    $('#modal-summary').classList.add('flex');
-  }
-
-  /* ==========================================================
-     ADIM 4 — ZAMAN KONTROLÜ + ALARM / BİLDİRİM / SES
-     =========================================================
-       - Her ADIM_S (15 sn) kontrol.
-       - Bir doz, "(saat - onerakDk)" ile "(saat + SON_PENCERE_DK)"
-         arasında ve alınmadıysa alarm verir (onerakDk = hastanın ayarı).
-       - "ertele" -> hastanın ayarladığı erteleDk kadar erteler, sonra yeniden.
-       - Sayfa açıkken çalışır.
-     ========================================================== */
+  // --------------------------------------------------
+  // Alarm & Time control
+  // --------------------------------------------------
   const alerted = new Set();
   const deferred = new Map();
   let queue = [];
-  let currentDue = null;
   let audioCtx = null;
 
   const slotKey = (id, time) => `${id}|${todayStr()}|${time}`;
 
   function getAudioCtx() {
-    if (!('AudioContext' in window) && !('webkitAudioContext' in window)) return null;
+    if (!('AudioContext' in window)) return null;
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
     return audioCtx;
@@ -696,12 +353,11 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   function bildirimGonder(med) {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     try {
-      const n = new Notification(med ? `İlaç Zamanı · ${med.ad}` : 'İlaç Takip', {
+      new Notification(med ? `İlaç Zamanı · ${med.ad}` : 'İlaç Takip', {
         body: med ? `${med.doz || 'doz'} — şimdi alınmalı` : 'Bildirimler çalışıyor.',
         icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'ilac-takip',
       });
-      n.onclick = () => { window.focus(); n.close(); };
-    } catch (e) { console.warn('Bildirim gönderilemedi:', e); }
+    } catch (e) {}
   }
   async function izinIste() {
     if (isNative) {
@@ -710,20 +366,16 @@ import { ExactAlarm } from '@ilac/exact-alarm';
         if (perm.display !== 'granted') {
           const newPerm = await LocalNotifications.requestPermissions();
           toast(newPerm.display === 'granted' ? 'Bildirim izni verildi.' : 'Bildirim izni reddedildi.');
-        } else {
-          toast('Bildirim izni zaten verilmiş.');
-        }
-      } catch (e) {
-        toast('Bildirim izni istenemedi.');
-      }
+        } else { toast('Bildirim izni zaten verilmiş.'); }
+      } catch (e) { toast('Bildirim izni istenemedi.'); }
       return;
     }
-    if (!('Notification' in window)) { toast('Tarayıcınız masaüstü bildirimi desteklemiyor.'); return; }
+    if (!('Notification' in window)) { toast('Tarayıcınız bildirimi desteklemiyor.'); return; }
     let p = Notification.permission;
     if (p === 'default') { try { p = await Notification.requestPermission(); } catch { p = Notification.permission; } }
-    if (p === 'granted') { toast('Bildirimler açık. Saat gelince uyaracağız.'); bildirimGonder(null); }
-    else if (p === 'denied') { toast('Bildirimler kapalı. Tarayıcı ayarlarından açabilirsiniz.'); }
-    else { toast('Bildirimi açmak için onay verin.'); }
+    if (p === 'granted') { toast('Bildirimler açık.'); bildirimGonder(null); }
+    else if (p === 'denied') toast('Bildirimler kapalı.');
+    else toast('Bildirimi açmak için onay verin.');
   }
 
   function modalGoster(item) {
@@ -749,9 +401,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     if (currentDue && slotKey(currentDue.med.id, currentDue.time) === k) currentDue = null;
     if (isNative && nativeAktif) {
       const map = readJSON(NOTI_KEY, {});
-      const pendingIds = Object.entries(map)
-        .filter(([_, v]) => v.startsWith(`${med.id}|`))
-        .map(([id, _]) => Number(id));
+      const pendingIds = Object.entries(map).filter(([_, v]) => v.startsWith(`${med.id}|`)).map(([id, _]) => Number(id));
       if (pendingIds.length) LocalNotifications.cancel({ notifications: pendingIds.map((id) => ({ id })) }).catch(() => {});
     }
     listeyiCiz(); kuyruguIsle();
@@ -763,8 +413,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     const ds = todayStr();
     const hasNotYetDue = meds.some((m) => m.times.some((t) => {
       if (done[`${m.id}|${ds}|${t}`]) return false;
-      const t0 = parseTime(t);
-      return t0.getTime() > now;
+      return parseTime(t).getTime() > now;
     }));
     if (!hasNotYetDue) setTimeout(gunSonuOzetGoster, 600);
   }
@@ -791,8 +440,8 @@ import { ExactAlarm } from '@ilac/exact-alarm';
         const defer = deferred.get(k);
         if (defer && Date.now() < defer) continue;
         const t0 = parseTime(time);
-        const basla = t0 - ayar.onerakDk * 60000;
-        const bit = t0 + SON_PENCERE_DK * 60000;
+        const basla = t0.getTime() - ayar.onerakDk * 60000;
+        const bit = t0.getTime() + SON_PENCERE_DK * 60000;
         if (now >= basla && now <= bit && !alerted.has(k)) { alerted.add(k); yeni.push({ med: m, time }); }
       }
     }
@@ -807,406 +456,307 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     document.addEventListener('visibilitychange', () => { if (!document.hidden) kontrol(); });
   }
 
-  /* ==========================================================
-     ADIM 2 — İLAÇ PANELİ (alttan kayan)
-     ========================================================== */
-  const saatKutu = $('#time-inputs');
-  const VARSAYILAN_SAT = ['09:00', '14:00', '20:00', '08:00', '12:00', '18:00', '21:00', '07:00'];
-  let ilacKaz = 1;
-  let editingId = null;
-  let pinHedef = null;
-  let yeniHastaId = null;
-
-  const mevcutSaatler = () => $$('.dose-time', saatKutu).map((i) => i.value);
-  function saatSatiri(no, deger) {
-    const row = document.createElement('label');
-    row.className = 'flex items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4';
-    row.innerHTML =
-      `<span class="shrink-0 font-semibold text-stone-600">${no}. doz</span>` +
-      `<input type="time" value="${deger || ''}" class="dose-time w-full bg-transparent text-right text-lg font-semibold text-stone-800 outline-none" />`;
-    return row;
-  }
-  function saatlariOlustur(n, seed) {
-    const cur = mevcutSaatler();
-    ilacKaz = n; $('#count-display').textContent = n; saatKutu.innerHTML = '';
-    for (let i = 0; i < n; i++) {
-      const v = (seed && seed[i] != null) ? seed[i] : (i < cur.length && cur[i]) ? cur[i] : VARSAYILAN_SAT[i % VARSAYILAN_SAT.length];
-      saatKutu.appendChild(saatSatiri(i + 1, v));
-    }
-  }
-  const sayiDegistir = (d) => saatlariOlustur(Math.min(8, Math.max(1, ilacKaz + d)));
-
-  function paneliAcar() {
-    const p = $('#panel-add'); p.classList.remove('hidden'); p.classList.add('flex');
-    document.body.classList.add('no-scroll');
-    setTimeout(() => $('#ilac-ad')?.focus({ preventScroll: true }), 60);
-  }
-  function paneliKapa() {
-    const p = $('#panel-add'); p.classList.add('hidden'); p.classList.remove('flex');
-    document.body.classList.remove('no-scroll');
-  }
-  const baslaLabel = () => { $('#panel-title').textContent = 'Yeni İlaç'; $('#panel-desc').textContent = 'İlaç bilginizi girin.'; $('#save-label').textContent = 'Kaydet'; };
-  function panelAcarYeni() { editingId = null; $('#med-form').reset(); baslaLabel(); saatlariOlustur(1); paneliAcar(); }
-  function panelAcDuzenle(med) {
-    editingId = med.id; $('#ilac-ad').value = med.ad; $('#ilac-doz').value = med.doz || '';
-    $('#panel-title').textContent = 'İlacı Düzenle'; $('#panel-desc').textContent = 'Bilgileri güncelleyin.'; $('#save-label').textContent = 'Güncelle';
-    saatlariOlustur(med.times.length, med.times); paneliAcar();
-  }
-  function paneliTemizleKapat() { paneliKapa(); editingId = null; $('#med-form').reset(); baslaLabel(); saatlariOlustur(1); }
-
-  async function ilacKaydetForm() {
-    const ad = $('#ilac-ad').value.trim();
-    const doz = $('#ilac-doz').value.trim();
-    const times = mevcutSaatler().filter(Boolean);
-    if (!ad) { $('#ilac-ad').focus(); toast('Lütfen ilaç adını girin.'); return; }
-    if (times.length < ilacKaz) { toast('Lütfen tüm alınma saatlerini doldurun.'); return; }
-    if (editingId) { ilacGuncelle(editingId, { ad, doz, times }); toast('İlaç güncellendi.'); }
-    else { ilacKaydet({ ad, doz, times }); toast('İlaç eklendi.'); }
-    paneliTemizleKapat(); listeyiCiz();
-    notiPlanla();
-    if (!editingId && isNative && nativeAktif && !exactAlarmToastShown) {
-      let r;
-      try { r = await ExactAlarm.canSchedule(); } catch { r = null; }
-      if (r && r.canSchedule) {
-        exactAlarmToastShown = true;
-        toast('Tam zamanlı alarm etkin — arka planda bile çalışacak.');
+  // --------------------------------------------------
+  // Patient list
+  // --------------------------------------------------
+  function listeyiCiz() {
+    const list = $('#med-list'), empty = $('#empty-state');
+    const meds = getMeds(), done = getDone(), now = new Date(), ds = todayStr();
+    const inst = [];
+    for (const m of meds) {
+      for (const time of m.times) {
+        const isDone = !!done[`${m.id}|${ds}|${time}`];
+        const overdue = !isDone && now >= parseTime(time);
+        inst.push({ med: m, time, isDone, overdue });
       }
     }
+    inst.sort((a, b) => a.time === b.time ? a.med.ad.localeCompare(b.med.ad, 'tr') : a.time.localeCompare(b.time));
+    list.innerHTML = '';
+    if (!inst.length) {
+      list.classList.add('hidden'); empty.classList.remove('hidden'); empty.classList.add('flex');
+      ozetiGuncelle(0, 0); return;
+    }
+    empty.classList.add('hidden'); empty.classList.remove('flex'); list.classList.remove('hidden');
+    const gosterilen = new Set();
+    for (const it of inst) {
+      const first = !gosterilen.has(it.med.id);
+      if (first) gosterilen.add(it.med.id);
+      list.appendChild(kartOlustur(it, first, done));
+    }
+    ozetiGuncelle(inst.length, inst.filter((i) => i.isDone).length);
+    const pending = inst.filter((i) => !i.isDone);
+    if (pending.length) {
+      const kart = list.querySelector(`[data-time="${pending[pending.length - 1].time}"][data-med="${pending[pending.length - 1].med.id}"]`);
+      if (kart) kart.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
   }
 
-  /* ==========================================================
-     ÇOKLU HASTA + PIN
-     ========================================================== */
-  function appGoster() {
-    document.body.classList.remove('no-scroll');
-    $('#screen-hasta').classList.add('hidden');
-    $('#app').classList.remove('hidden'); $('#app').classList.add('flex');
+  function kartOlustur(it, firstMed, done) {
+    const { med, time, isDone, overdue } = it;
+    const durum = isDone ? 'done' : overdue ? 'overdue' : 'pending';
+    const el = document.createElement('article');
+    el.className = `med-card flex items-center gap-3 rounded-2xl border border-l-4 p-4 ` + {
+      done: 'border-emerald-100 border-l-emerald-500 bg-emerald-50',
+      overdue: 'border-rose-100 border-l-rose-500 bg-rose-50 is-overdue',
+      pending: 'border-stone-100 border-l-amber-400 bg-white shadow-sm',
+    }[durum];
+    el.dataset.time = time; el.dataset.med = med.id;
+    const rozetArk = isDone ? 'bg-emerald-100 text-emerald-700' : overdue ? 'bg-rose-100 text-rose-700' : 'bg-amber-50 text-amber-700';
+    const rozetYazi = isDone ? 'Alındı' : overdue ? 'Geçti' : 'Bekleniyor';
+    const adRengi = isDone ? 'text-stone-700' : overdue ? 'text-rose-900' : 'text-stone-800';
+    const dozRengi = overdue ? 'text-rose-700/80' : 'text-stone-500';
+    let gosterilenZaman = time;
+    if (isDone && done) {
+      const takenKey = `${med.id}|${todayStr()}|${time}`;
+      const takenTs = done[takenKey];
+      if (takenTs) gosterilenZaman = `${pad(new Date(takenTs).getHours())}:${pad(new Date(takenTs).getMinutes())}`;
+    }
+    let kontrol;
+    if (isDone) {
+      kontrol = `<div class="flex h-11 min-w-[52px] shrink-0 items-center justify-center rounded-xl bg-emerald-500 px-3 text-white"><svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>`;
+    } else {
+      const btn = overdue ? 'bg-rose-600 text-white' : 'border-2 border-emerald-500 bg-white text-emerald-600';
+      kontrol = `<button type="button" data-take title="Alındı işaretle" class="flex min-h-[44px] min-w-[64px] shrink-0 items-center justify-center rounded-xl px-4 text-sm font-bold active:scale-95 transition ${btn}">Alındı</button>`;
+    }
+    const eylemler = firstMed ? `<div class="flex shrink-0 gap-1">
+      <button type="button" data-edit aria-label="Düzenle" title="Düzenle" class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 hover:bg-stone-100 hover:text-stone-600 active:scale-95 transition"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
+      <button type="button" data-del aria-label="Sil" title="Sil" class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 hover:bg-rose-100 hover:text-rose-600 active:scale-95 transition"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+    </div>` : '';
+    el.innerHTML = `<div class="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-xl ${rozetArk}"><span class="text-lg font-bold leading-none">${gosterilenZaman}</span><span class="mt-1 text-[11px] font-semibold">${rozetYazi}</span></div>
+      <div class="min-w-0 flex-1"><h3 class="truncate text-lg font-semibold ${adRengi}">${esc(med.ad)}</h3><p class="truncate text-sm ${dozRengi}">${esc(med.doz || 'doz')} · Günde ${med.times.length}</p></div>
+      ${eylemler}${kontrol}`;
+    el.querySelector('[data-take]')?.addEventListener('click', () => almIsaretle(med, time));
+    el.querySelector('[data-edit]')?.addEventListener('click', () => panelAcDuzenle(med));
+    el.querySelector('[data-del]')?.addEventListener('click', () => {
+      if (window.confirm(`"${med.ad}" ilacını silmek istediğinize emin misiniz?`)) { ilacSil(med.id); listeyiCiz(); notiPlanla(); toast('İlaç silindi.'); }
+    });
+    return el;
   }
-  function appGizle() {
-    document.body.classList.remove('no-scroll');
-    $('#app').classList.add('hidden'); $('#app').classList.remove('flex');
-    $('#screen-hasta').classList.remove('hidden');
+
+  function ozetiGuncelle(toplam, alinan) {
+    $('#summary-total').textContent = toplam;
+    $('#summary-pending').textContent = Math.max(0, toplam - alinan);
+    $('#summary-done').textContent = alinan;
   }
-  function setHastaAlan(mod) {
-    $('#h-liste').classList.toggle('hidden', mod !== 'liste');
-    $('#yeni-kutu').classList.toggle('hidden', mod !== 'form');
-    $('#pin-kutu').classList.toggle('hidden', mod !== 'pin');
-    $('#h-yeni').classList.toggle('hidden', mod !== 'liste');
-    $('#h-geri').classList.toggle('hidden', !(aktifPid && mod === 'liste'));
+
+  function gunSonuOzetGoster() {
+    const meds = getMeds(), done = getDone(), ds = todayStr();
+    const body = $('#summary-body'); body.innerHTML = '';
+    if (!meds.length) { $('#modal-summary').classList.add('hidden'); $('#modal-summary').classList.remove('flex'); return; }
+    const lines = [];
+    for (const m of meds) {
+      for (const time of m.times) {
+        const key = `${m.id}|${ds}|${time}`;
+        const takenTs = done[key];
+        if (takenTs) {
+          lines.push(`<div class="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2"><span class="font-semibold text-emerald-800">${esc(m.ad)} ${time}</span><span class="text-emerald-700">Alındı ${pad(new Date(takenTs).getHours())}:${pad(new Date(takenTs).getMinutes())}</span></div>`);
+        } else {
+          lines.push(`<div class="flex items-center justify-between rounded-xl bg-rose-50 px-3 py-2"><span class="font-semibold text-rose-800">${esc(m.ad)} ${time}</span><span class="text-rose-700">Atlandı</span></div>`);
+        }
+      }
+    }
+    body.innerHTML = lines.join('');
+    $('#modal-summary').classList.remove('hidden'); $('#modal-summary').classList.add('flex');
   }
+
+  // --------------------------------------------------
+  // Patient selection flow
+  // --------------------------------------------------
+  let currentDue = null;
+  let yeniHastaId = null;
+  let pinHedef = null;
+
+  function hastaGir(pid, opts = {}) {
+    const h = getHastalar().find((x) => x.id === pid); if (!h) return;
+    if (h.pin && h.pin.length && !opts.pinAtlandi) { pinKutuAc(h); return; }
+    aktifPid = pid; aktifHasta = h; setAktifId(pid);
+    alerted.clear(); deferred.clear(); queue = []; currentDue = null; modalGizle();
+    appGoster(); $('#h-cip-adi').textContent = h.ad; $('#h-cip-avatar').textContent = harf(h.ad);
+    $('#h-cip-avatar').className = 'flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold text-white ' + avatarRenk(h.ad);
+    loadAyarSec(); listeyiCiz();
+    notiPlanla();
+  }
+
+  function hastaSil(id) {
+    const h = getHastalar().find((x) => x.id === id); if (!h) return;
+    if (!window.confirm(`"${h.ad}" ve tüm ilaç kayıtları silinecek. Emin misiniz?`)) return;
+    saveHastalar(getHastalar().filter((x) => x.id !== id));
+    try { localStorage.removeItem(medKey(id)); localStorage.removeItem(doneKey(id)); localStorage.removeItem(setKey(id)); } catch {}
+    if (aktifPid === id) { aktifPid = null; aktifHasta = null; setAktifId(null); }
+    listeyiCizHastalar(); toast('Hasta silindi.');
+  }
+
+  // --------------------------------------------------
+  // Event handlers
+  // --------------------------------------------------
   function listeyiCizHastalar() {
-    const box = $('#h-liste'); const list = getHastalar();
+    const box = $('#h-liste');
+    const list = getHastalar();
     box.innerHTML = '';
-    setHastaAlan('liste');
     if (!list.length) {
-      box.innerHTML = '<p class="rounded-2xl bg-white/15 px-4 py-6 text-center text-brand-50 ring-1 ring-white/20">Henüz hasta yok. Altta "Yeni Hasta" ile ekleyin.</p>';
+      box.innerHTML = '<p class="rounded-2xl bg-white/15 px-4 py-6 text-center text-brand-50">Henüz hasta yok.</p>';
       return;
     }
     list.forEach((h) => {
       const el = document.createElement('div');
       el.className = 'flex items-center gap-2';
       el.innerHTML = `
-        <button type="button" data-enter data-id="${h.id}"
-          class="flex min-h-[56px] flex-1 items-center gap-3 rounded-2xl bg-white/95 p-3 text-left text-stone-800 shadow-lg active:scale-[.99] transition">
+        <button type="button" data-enter data-id="${h.id}" class="flex min-h-[56px] flex-1 items-center gap-3 rounded-2xl bg-white/95 p-3 text-left text-stone-800">
           <span class="flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold text-white ${avatarRenk(h.ad)}">${esc(harf(h.ad))}</span>
-          <span class="min-w-0 flex-1">
-            <span class="block truncate text-lg font-bold">${esc(h.ad)}</span>
-            <span class="block text-xs ${h.pin ? 'text-amber-600' : 'text-stone-400'}">${h.pin ? '🔒 PIN korumalı' : 'İlaç takip'}</span>
-          </span>
-          <svg class="h-5 w-5 text-stone-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+          <span class="min-w-0 flex-1"><span class="block truncate text-lg font-bold">${esc(h.ad)}</span><span class="block text-xs ${h.pin ? 'text-amber-600' : 'text-stone-400'}">${h.pin ? '🔒 PIN korumalı' : 'İlaç takip'}</span></span>
         </button>
-        <button type="button" data-sil data-id="${h.id}" aria-label="Sil" title="Sil"
-          class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-white/90 ring-1 ring-white/25 active:scale-95 transition">
-          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        <button type="button" data-sil data-id="${h.id}" aria-label="Sil" class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white/90 active:scale-95 transition">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
         </button>`;
       el.querySelector('[data-enter]').addEventListener('click', () => hastaGir(h.id));
       el.querySelector('[data-sil]').addEventListener('click', () => hastaSil(h.id));
       box.appendChild(el);
     });
   }
-  function yeniKutuAc(hasta = null) {
-    yeniHastaId = hasta?.id || null;
-    $('#yeni-title').textContent = hasta ? 'Hastayı Düzenle' : 'Yeni Hasta';
-    $('#h-kaydet').textContent = hasta ? 'Kaydet' : 'Kaydet ve Gir';
-    $('#h-ad').value = hasta?.ad || '';
-    $('#h-pin').value = hasta?.pin || '';
-    setHastaAlan('form');
-    setTimeout(() => $('#h-ad')?.focus(), 60);
-  }
-  function hastaFormKaydet() {
-    const ad = $('#h-ad').value.trim();
-    let pin = $('#h-pin').value.replace(/\D/g, '').slice(0, 6);
-    if (!ad) { toast('Hasta adı gerekli.'); return; }
-    if (pin && (pin.length < 4 || pin.length > 6)) { toast('PIN 4–6 haneli olmalı.'); return; }
-    const list = getHastalar();
-    if (yeniHastaId) {
-      const h = list.find((x) => x.id === yeniHastaId);
-      if (h) { h.ad = ad; h.pin = pin; }
-      saveHastalar(list); toast('Hasta güncellendi.');
-      setHastaAlan('liste'); listeyiCizHastalar();
-      if (aktifPid === yeniHastaId) { aktifHasta = h; $('#h-cip-adi').textContent = ad; $('#h-cip-avatar').textContent = harf(ad); }
-    } else {
-      const id = genHastaId();
-      list.push({ id, ad, pin }); saveHastalar(list);
-      toast('Hasta oluşturuldu.');
-      hastaGir(id, { pinAtlandi: true });
-    }
-  }
-  function hastaSil(id) {
-    const h = getHastalar().find((x) => x.id === id); if (!h) return;
-    if (!window.confirm(`"${h.ad}" ve tüm ilaç kayıtları kalıcı olarak silinecek. Emin misiniz?`)) return;
-    saveHastalar(getHastalar().filter((x) => x.id !== id));
-    try { localStorage.removeItem(medKey(id)); localStorage.removeItem(doneKey(id)); localStorage.removeItem(setKey(id)); } catch {}
-    if (firebaseSyncEnabled && db) {
-      set(ref(db, `patients/${id}/meds`), null);
-      set(ref(db, `patients/${id}/done`), null);
-    }
-    if (aktifPid === id) { aktifPid = null; aktifHasta = null; setAktifId(null); }
-    listeyiCizHastalar(); toast('Hasta silindi.');
-  }
+
   function pinKutuAc(h) {
     pinHedef = h; $('#pin-adi').textContent = h.ad;
     $('#pin-hata').classList.add('hidden'); $('#pin-in').value = '';
-    setHastaAlan('pin'); setTimeout(() => $('#pin-in')?.focus(), 60);
+    $('#pin-kutu').classList.remove('hidden');
+    setTimeout(() => $('#pin-in')?.focus(), 60);
   }
+
   function pinKont() {
     const v = ($('#pin-in').value || '').replace(/\D/g, '');
-    if (pinHedef && v === (pinHedef.pin || '')) { setHastaAlan('liste'); hastaGir(pinHedef.id, { pinAtlandi: true }); }
-    else { $('#pin-hata').classList.remove('hidden'); $('#pin-in').value = ''; $('#pin-in').focus(); }
-  }
-  function hastaGir(pid, opts = {}) {
-    console.log('🔔 hastaGir() BASLADI - pid:', pid, 'aktifPid_once:', aktifPid);
-    const h = getHastalar().find((x) => x.id === pid); if (!h) return;
-    if (h.pin && h.pin.length && !opts.pinAtlandi) { pinKutuAc(h); return; }
-    stopFirebasePolling();
-    aktifPid = pid; aktifHasta = h; setAktifId(pid);
-    alerted.clear(); deferred.clear(); queue = []; currentDue = null; modalGizle();
-    appGoster();
-    $('#h-cip-adi').textContent = h.ad;
-    $('#h-cip-avatar').textContent = harf(h.ad);
-    $('#h-cip-avatar').className = 'flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold text-white ' + avatarRenk(h.ad);
-    loadAyarSec();
-    listeyiCiz();
-    if (firebaseSyncEnabled()) startFirebasePolling();
-    console.log('🔔 hastaGir() sonrasi notiPlanla() cagriliyor...');
-    notiPlanla();
-    if (firebasePolling) {
-      setTimeout(() => {
-        const meds = getMeds(), done = getDone(), ds = todayStr();
-        const inst = [];
-        for (const m of meds) {
-          for (const time of m.times) {
-            const isDone = !!done[`${m.id}|${ds}|${time}`];
-            const now = new Date();
-            const overdue = !isDone && now >= parseTime(time);
-            inst.push({ med: m, time, isDone, overdue });
-          }
-        }
-        const total = inst.length;
-        const doneCount = inst.filter((i) => i.isDone).length;
-        ozetiGuncelle(total, doneCount);
-      }, 100);
+    if (pinHedef && v === (pinHedef.pin || '')) {
+      $('#pin-kutu').classList.add('hidden');
+      hastaGir(pinHedef.id);
+    } else {
+      $('#pin-hata').classList.remove('hidden'); $('#pin-in').value = ''; $('#pin-in').focus();
     }
   }
 
-  /* ==========================================================
-     AYARLAR (önce uyarı / erteleme) + VERİ YEDEK
-     ========================================================== */
-  function ayarAc() { if (!aktifPid) return; loadAyarSec(); const p = $('#panel-ayar'); p.classList.remove('hidden'); document.body.classList.add('no-scroll'); }
-  function ayarKapa() { $('#panel-ayar').classList.add('hidden'); document.body.classList.remove('no-scroll'); appGoster(); }
+  function appGoster() {
+    document.body.classList.remove('no-scroll');
+    $('#screen-hasta').classList.add('hidden');
+    $('#app').classList.remove('hidden'); $('#app').classList.add('flex');
+  }
+
   function loadAyarSec() { const a = getAyar(); $('#set-onerak').value = String(a.onerakDk); $('#set-ertele').value = String(a.erteleDk); }
   function ayarKaydet(k, v) { const a = getAyar(); a[k] = v; saveAyar(aktifPid, a); toast('Ayarlar kaydedildi.'); }
 
-  function firebaseYapilandir() {
-    const dbUrl = prompt('Firebase Database URL (örn: https://xxx-default-rtdb.firebaseio.com):', '');
-    if (!dbUrl) return;
-    const apiKey = prompt('Firebase API Key:', '');
-    if (!apiKey) return;
-    saveFirebaseConfig({ dbUrl, apiKey });
-    toast('Firebase yapılandırıldı. Yeniden başlatın.');
-  }
-
-  function firebaseDurumGuncelle() {
-    const el = $('#firebase-indicator');
-    if (firebaseSyncEnabled()) {
-      el.textContent = 'Etkin';
-      el.className = 'ml-1 text-emerald-600';
-    } else {
-      el.textContent = 'Yapılandırılmadı';
-      el.className = 'ml-1 text-amber-600';
-    }
-  }
-
-  async function veriDisa() {
-    if (!aktifHasta) return;
-    const veri = {
-      _format: 'ilac-takip-yedek', versiyon: 1,
-      hasta: { id: aktifHasta.id, ad: aktifHasta.ad, pin: aktifHasta.pin },
-      ayar: getAyar(), ilaclar: getMeds(), alindi: getDone(),
-      disariTarih: new Date().toISOString(),
-    };
-    const jsonString = JSON.stringify(veri, null, 2);
-    const baseDosyaAdi = `ilac-takip-${slug(aktifHasta.ad)}-${todayStr()}`;
-    const dosyaAdi = `${baseDosyaAdi}.json`;
-    if (isNative) {
-      try {
-        const targetDir = Directory.Documents;
-        const targetPath = `${baseDosyaAdi}.json`;
-        try {
-          await Filesystem.mkdir({ path: '', directory: targetDir, recursive: true });
-        } catch (e) {
-          console.warn('Dizin olusturma hatasi (gormeden devam ediliyor):', e);
-        }
-        console.log('Yedek dosyasi yazilmaya calisiliyor:', targetPath, 'directory:', targetDir);
-        const writeResult = await Filesystem.writeFile({ path: targetPath, data: jsonString, directory: targetDir, encoding: Encoding.UTF8 });
-        console.log('Yedek dosyasi yazildi:', writeResult);
-        const { uri } = await Filesystem.getUri({ path: targetPath, directory: targetDir });
-        console.log('Yedek dosya URI:', uri);
-        await Share.share({ files: [uri], title: 'İlaç Takip Yedeği' });
-        toast('Yedek paylaşıldı.');
-      } catch (e) {
-        console.error('Dosya paylaşımı başarısız:', e);
-        const hataMesaji = (e && e.message) ? e.message : String(e);
-        alert('Yedekleme hatası:\n\n' + hataMesaji + '\n\nDetaylar için konsola bakın.');
-        toast('Paylaşım başarısız: ' + (e.message || e));
-      }
-    } else {
-      const file = new File([jsonString], dosyaAdi, { type: 'application/json' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], title: 'İlaç Takip Yedeği' }); toast('Yedek paylaşıldı.'); }
-        catch (e) { if (e.name !== 'AbortError') toast('Paylaşım başarısız.'); }
-      } else { alert('Paylaşım menüsü desteklenmiyor.'); }
-    }
-  }
-
-  async function veriDisaKaydet() {
-    if (!aktifHasta) return;
-    const veri = {
-      _format: 'ilac-takip-yedek', versiyon: 1,
-      hasta: { id: aktifHasta.id, ad: aktifHasta.ad, pin: aktifHasta.pin },
-      ayar: getAyar(), ilaclar: getMeds(), alindi: getDone(),
-      disariTarih: new Date().toISOString(),
-    };
-    const jsonString = JSON.stringify(veri, null, 2);
-    const baseDosyaAdi = `ilac-takip-${slug(aktifHasta.ad)}-${todayStr()}`;
-    if (isNative) {
-      try {
-        const saveDir = Directory.Documents;
-        const folderPath = 'ilac-takip-yedekler';
-        const targetPath = `${folderPath}/${baseDosyaAdi}.json`;
-        try {
-          await Filesystem.mkdir({ path: folderPath, directory: saveDir, recursive: true });
-        } catch (e) {
-          console.warn('Yedek dizini olusturma hatasi:', e);
-        }
-        await Filesystem.writeFile({ path: targetPath, data: jsonString, directory: saveDir, encoding: Encoding.UTF8 });
-        const { uri } = await Filesystem.getUri({ path: targetPath, directory: saveDir });
-        console.log('Yedek kaydedildi:', uri);
-        toast('Yedek kaydedildi: Documents/ilac-takip-yedekler/');
-      } catch (e) {
-        console.error('Yedek kaydetme hatasi:', e);
-        const hataMesaji = (e && e.message) ? e.message : String(e);
-        alert('Yedek kaydetme hatası:\n\n' + hataMesaji);
-        toast('Yedek kaydedilemedi.');
-      }
-    } else {
-      const file = new File([jsonString], `${baseDosyaAdi}.json`, { type: 'application/json' });
-      if (navigator.canShare && navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file], title: 'İlaç Takip Yedeği' }); toast('Yedek paylaşıldı.'); }
-        catch (e) { if (e.name !== 'AbortError') toast('Paylaşım başarısız.'); }
-      } else { alert('Paylaşım menüsü desteklenmiyor.'); }
-    }
-  }
-  function veriIcce(file) {
-    const fr = new FileReader();
-    fr.onload = () => {
-      try {
-        const v = JSON.parse(fr.result);
-        if (!v || typeof v !== 'object') throw new Error('Boş dosya.');
-        if (!Array.isArray(v.ilaclar)) throw new Error('Geçersiz yedek (ilaç listesi yok).');
-        const ad = (v.hasta && v.hasta.ad ? String(v.hasta.ad) : 'İçe Aktarılan').trim() || 'İçe Aktarılan';
-        const pin = v.hasta && v.hasta.pin ? String(v.hasta.pin) : '';
-        if (!window.confirm(`"${ad}" yedeği geri yüklenecek (${v.ilaclar.length} ilaç).\nDevam etmek istiyor musunuz?`)) return;
-        const list = getHastalar();
-        let h = list.find((x) => v.hasta && x.id === v.hasta.id) || list.find((x) => x.ad === ad);
-        if (!h) { h = { id: genHastaId(), ad, pin }; list.push(h); saveHastalar(list); }
-        saveAyar(h.id, Object.assign({}, K_DEFAULT, v.ayar || {}));
-        writeJSON(medKey(h.id), v.ilaclar);
-        writeJSON(doneKey(h.id), (v.alindi && typeof v.alindi === 'object') ? v.alindi : {});
-        hastaGir(h.id, { pinAtlandi: true });
-        toast('Yedek geri yüklendi.');
-      } catch (e) { toast('Dosya okunamadı: ' + e.message); }
-    };
-    fr.readAsText(file);
-  }
-
-  /* ==========================================================
-     BAŞLANGIÇ
-     ========================================================== */
+  // --------------------------------------------------
+  // DOMContentLoaded
+  // --------------------------------------------------
   document.addEventListener('DOMContentLoaded', () => {
     $('#today-date').textContent = bugunTarihTR();
+
+    // Load patients from Firebase or LocalStorage
+    if (navigator.onLine) {
+      loadHastalarFromFirebase();
+    }
     listeyiCizHastalar();
 
-    // Hasta seçimi
-    $('#h-yeni').addEventListener('click', () => yeniKutuAc(null));
-    $('#h-iptal').addEventListener('click', () => { listeyiCizHastalar(); });
-    $('#h-geri').addEventListener('click', () => appGoster());
-    $('#hasta-form').addEventListener('submit', (e) => { e.preventDefault(); hastaFormKaydet(); });
-    $('#pin-gir').addEventListener('click', pinKont);
-    $('#pin-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); pinKont(); } });
-    $('#pin-geri').addEventListener('click', () => listeyiCizHastalar());
+    // Patient selection events
+    document.getElementById('h-yeni')?.addEventListener('click', () => { yeniHastaId = null; $('#h-ad').value = ''; $('#h-pin').value = ''; $('#h-yeni-title').textContent = 'Yeni Hasta'; $('#h-kaydet').textContent = 'Kaydet ve Gir'; $('#hasta-form').reset(); $('#yeni-kutu').classList.remove('hidden'); setTimeout(() => $('#h-ad')?.focus(), 60); });
+    document.getElementById('h-iptal')?.addEventListener('click', () => { $('#yeni-kutu').classList.add('hidden'); });
+    document.getElementById('h-geri')?.addEventListener('click', () => { appGizle(); listeyiCizHastalar(); });
+    document.getElementById('hasta-form')?.addEventListener('submit', (e) => { e.preventDefault();
+      const ad = $('#h-ad').value.trim();
+      let pin = $('#h-pin').value.replace(/\D/g, '').slice(0, 6);
+      if (!ad) { toast('Hasta adı gerekli.'); return; }
+      if (pin && (pin.length < 4 || pin.length > 6)) { toast('PIN 4-6 haneli olmalı.'); return; }
+      const list = getHastalar();
+      if (yeniHastaId) {
+        const h = list.find((x) => x.id === yeniHastaId);
+        if (h) { h.ad = ad; h.pin = pin; }
+        saveHastalar(list); toast('Hasta güncellendi.');
+        listeyiCizHastalar();
+      } else {
+        const id = genHastaId();
+        list.push({ id, ad, pin }); saveHastalar(list);
+        toast('Hasta oluşturuldu.');
+        hastaGir(id, { pinAtlandi: true });
+      }
+      $('#yeni-kutu').classList.add('hidden');
+    });
+    document.getElementById('pin-gir')?.addEventListener('click', pinKont);
+    document.getElementById('pin-in')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); pinKont(); } });
+    document.getElementById('pin-geri')?.addEventListener('click', () => { $('#pin-kutu').classList.add('hidden'); });
 
     // App header
-    $('#h-cip').addEventListener('click', () => { appGizle(); listeyiCizHastalar(); });
-    $('#notif-btn').addEventListener('click', izinIste);
-    $('#ayar-btn').addEventListener('click', ayarAc);
+    document.getElementById('h-cip')?.addEventListener('click', () => { appGizle(); listeyiCizHastalar(); });
+    document.getElementById('notif-btn')?.addEventListener('click', izinIste);
+    document.getElementById('ayar-btn')?.addEventListener('click', () => {
+      loadAyarSec();
+      const p = $('#panel-ayar'); p.classList.remove('hidden'); document.body.classList.add('no-scroll');
+    });
 
-    // Ayarlar
-    $('#ayar-kapa').addEventListener('click', ayarKapa);
-    $('#btn-summary-close').addEventListener('click', () => { $('#modal-summary').classList.add('hidden'); $('#modal-summary').classList.remove('flex'); });
-    $('#set-onerak').addEventListener('change', (e) => { ayarKaydet('onerakDk', +e.target.value); notiPlanla(); });
-    $('#set-ertele').addEventListener('change', (e) => ayarKaydet('erteleDk', +e.target.value));
-    $('#btn-export').addEventListener('click', veriDisa);
-    $('#btn-export-save').addEventListener('click', veriDisaKaydet);
-    $('#btn-import').addEventListener('click', () => { const f = $('#import-file'); f.value = ''; f.click(); });
-    $('#import-file').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) veriIcce(f); });
+    // Settings
+    document.getElementById('ayar-kapa')?.addEventListener('click', () => {
+      $('#panel-ayar').classList.add('hidden'); document.body.classList.remove('no-scroll'); appGoster();
+    });
+    document.getElementById('btn-summary-close')?.addEventListener('click', () => {
+      $('#modal-summary').classList.add('hidden'); $('#modal-summary').classList.remove('flex');
+    });
+    document.getElementById('set-onerak')?.addEventListener('change', (e) => { ayarKaydet('onerakDk', +e.target.value); notiPlanla(); });
+    document.getElementById('set-ertele')?.addEventListener('change', (e) => ayarKaydet('erteleDk', +e.target.value));
 
-    // Firebase config
-    $('#btn-firebase-config').addEventListener('click', firebaseYapilandir);
-    firebaseDurumGuncelle();
+    // Add medication
+    const countDisplay = document.getElementById('count-display');
+    const timeInputs = document.getElementById('time-inputs');
+    function saatiOlustur(n, seed) {
+      const cur = Array.from(document.querySelectorAll('.dose-time')).map((i) => i.value);
+      ilacKaz = n; countDisplay.textContent = n; timeInputs.innerHTML = '';
+      const VARSAYILAN = ['09:00', '14:00', '20:00', '08:00', '12:00', '18:00', '21:00', '07:00'];
+      for (let i = 0; i < n; i++) {
+        const row = document.createElement('label');
+        row.className = 'flex items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4';
+        const v = (seed && seed[i] != null) ? seed[i] : (i < cur.length && cur[i]) ? cur[i] : VARSAYILAN[i % VARSAYILAN.length];
+        row.innerHTML = `<span class="shrink-0 font-semibold text-stone-600">${i + 1}. doz</span><input type="time" value="${v}" class="dose-time w-full bg-transparent text-right text-lg font-semibold text-stone-800 outline-none" />`;
+        timeInputs.appendChild(row);
+      }
+    }
 
-    // İlaç paneli
-    $('#btn-add').addEventListener('click', panelAcarYeni);
-    $('#btn-cancel').addEventListener('click', paneliTemizleKapat);
-    $('#panel-overlay').addEventListener('click', paneliTemizleKapat);
-    $('#btn-minus').addEventListener('click', () => sayiDegistir(-1));
-    $('#btn-plus2').addEventListener('click', () => sayiDegistir(1));
-    $('#med-form').addEventListener('submit', (e) => { e.preventDefault(); ilacKaydetForm(); });
-    $('#btn-save').addEventListener('click', (e) => { e.preventDefault(); ilacKaydetForm(); });
+    document.getElementById('btn-minus')?.addEventListener('click', () => saatiOlustur(Math.max(1, ilacKaz - 1)));
+    document.getElementById('btn-plus2')?.addEventListener('click', () => saatiOlustur(Math.min(8, ilacKaz + 1)));
 
-    // Sesi ilk etkileşimde hazırla
+    document.getElementById('btn-add')?.addEventListener('click', () => {
+      editingId = null; document.getElementById('med-form').reset(); document.getElementById('panel-title').textContent = 'Yeni İlaç';
+      document.getElementById('panel-desc').textContent = 'İlaç bilginizi girin.'; document.getElementById('save-label').textContent = 'Kaydet';
+      saatiOlustur(1); $('#panel-add').classList.remove('hidden'); document.body.classList.add('no-scroll');
+      setTimeout(() => $('#ilac-ad')?.focus({ preventScroll: true }), 60);
+    });
+    document.getElementById('btn-cancel')?.addEventListener('click', () => { $('#panel-add').classList.add('hidden'); document.body.classList.remove('no-scroll'); });
+    document.getElementById('btn-save')?.addEventListener('click', (e) => { e.preventDefault();
+      const ad = $('#ilac-ad').value.trim();
+      const doz = $('#ilac-doz').value.trim();
+      const times = Array.from(document.querySelectorAll('.dose-time')).map((i) => i.value).filter(Boolean);
+      if (!ad) { $('#ilac-ad').focus(); toast('Lütfen ilaç adını girin.'); return; }
+      if (times.length < ilacKaz) { toast('Tüm alınma saatlerini doldurun.'); return; }
+      if (editingId) { ilacGuncelle(editingId, { ad, doz, times }); toast('İlaç güncellendi.'); }
+      else { ilacKaydet({ ad, doz, times }); toast('İlaç eklendi.'); }
+      $('#panel-add').classList.add('hidden'); document.body.classList.remove('no-scroll');
+      listeyiCiz();
+      notiPlanla();
+    });
+    document.getElementById('med-form')?.addEventListener('submit', (e) => { e.preventDefault(); document.getElementById('btn-save').click(); });
+
     window.addEventListener('pointerdown', () => getAudioCtx(), { once: true });
     window.addEventListener('keydown', () => getAudioCtx(), { once: true });
 
-    // Native (Capacitor) Local Notifications hazirla (izin + aksiyon dinleyici)
     setupNative();
-
-    // Firebase sync - check if configured
-    if (firebaseSyncEnabled()) {
-      startFirebasePolling();
-      toast('Firebase senkronizasyonu etkin.');
-    }
-
-    // Zaman motoru
     zamanKontroluBaslat();
   });
 
-  /* ==========================================================
-     PWA — Service Worker
-     ========================================================== */
+  // --------------------------------------------------
+  // PWA Service Worker
+  // --------------------------------------------------
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service Worker kaydedilemedi:', err));
     });
   }
+
+  let ilacKaz = 1;
+  let editingId = null;
 })();
+
+// ==========================================================
+// Helper functions (moved outside IIFE for global access)
+// ==========================================================
