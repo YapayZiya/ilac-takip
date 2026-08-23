@@ -2,402 +2,282 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8" />
-  <!-- viewport-fit=cover: üst/alt güvenli alan (notch) için -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="description" content="İlaçlarınızı saat saatinde takip edin, kaçırmayın." />
-  <title>İlaç Takip</title>
-
-  <!-- ===== PWA ===== -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0d9488" />
-  <link rel="manifest" href="manifest.json" />
-  <link rel="icon" type="image/png" href="icons/icon-192.png" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="İlaç Takip" />
-
-  <!-- ===== Tipografi ===== -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-
-  <!-- ===== Tailwind CSS ===== -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: { sans: ['Inter', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'] },
-          colors: {
-            brand: {
-              50:'#f0fdfa',100:'#ccfbf1',200:'#99f6e4',300:'#5eead4',400:'#2dd4bf',
-              500:'#14b8a6',600:'#0d9488',700:'#0f766e',800:'#115e59',
-            },
-          },
-        },
-      },
-    };
-  </script>
-
-  <!-- Özel stiller -->
+  <title>İlaç Takip</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-96.png" type="image/png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="tailwind.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
+<body class="bg-gray-100 text-gray-800 antialiased select-none">
+  <div id="app" class="mx-auto flex min-h-screen w-full max-w-md flex-col">
 
-<body class="bg-stone-100 font-sans text-stone-800 antialiased">
-
-  <!-- ============================================================
-       EKRAN 1 — HASTA SEÇİM / GİRİŞ
-       (Her açılışta görünür. Hasta seçilene kadar ana uygulama gizli.)
-   ============================================================= -->
-  <div id="screen-hasta" class="min-h-screen bg-gradient-to-b from-brand-600 to-brand-800 text-white">
-    <div class="mx-auto flex min-h-screen w-full max-w-md flex-col px-5"
-         style="padding-top: calc(env(safe-area-inset-top) + 2.5rem); padding-bottom: max(1.5rem, env(safe-area-inset-bottom));">
-
-      <div class="mb-8 text-center">
-        <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-3xl bg-white/15 ring-1 ring-white/30">
-          <svg class="h-9 w-9 text-white" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M10 3h4a1 1 0 0 1 1 1v5h5a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-5v5a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-5H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h5V4a1 1 0 0 1 1-1Z"/>
-          </svg>
-        </div>
-        <h1 class="text-2xl font-extrabold">İlaç Takip</h1>
-        <p id="hasta-secim-baslik" class="mt-1 text-brand-50/90">Devam etmek için bir hasta seçin</p>
-      </div>
-
-      <!-- Geçiş modunda geri -->
-      <button id="h-geri" type="button"
-        class="mb-4 hidden items-center gap-1.5 self-start rounded-full bg-white/15 px-4 py-2 text-sm font-semibold ring-1 ring-white/25 active:scale-95 transition">
-        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
-        Geri
-      </button>
-
-      <!-- Mevcut hasta listesi (JS ile çizilir) -->
-      <div id="h-liste" class="space-y-3">
-        <!-- Boşsa JS burada bir mesaj koyar -->
-      </div>
-
-      <!-- Yeni hasta / düzenleme formu -->
-      <div id="yeni-kutu" class="mt-6 hidden rounded-3xl bg-white p-5 text-stone-800 shadow-xl">
-        <h2 id="yeni-title" class="mb-4 text-lg font-bold">Yeni Hasta</h2>
-        <form id="hasta-form" class="space-y-3">
-          <label class="block">
-            <span class="mb-1 block font-semibold text-stone-600">Hasta Adı</span>
-            <input id="h-ad" type="text" required autocomplete="off" placeholder="örn: Ayşe"
-              class="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 min-h-[52px] text-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200" />
-          </label>
-          <label class="block">
-            <span class="mb-1 block font-semibold text-stone-600">PIN (isteğe bağlı, 4–6 hane)</span>
-            <input id="h-pin" type="password" inputmode="numeric" maxlength="6" pattern="[0-9]*" autocomplete="off"
-              placeholder="••••"
-              class="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 min-h-[52px] text-lg tracking-[0.5em] outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200" />
-          </label>
-          <p class="text-xs text-stone-500">PIN girerseniz yalnızca bu hasta açılırken PIN ister. Boş bırakırsanız PIN istemez.</p>
-          <div class="flex gap-2 pt-1">
-            <button type="button" id="h-iptal"
-              class="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl border-2 border-stone-200 bg-white font-bold text-stone-600 active:scale-[.98] transition">Vazgeç</button>
-            <button type="submit" id="h-kaydet"
-              class="flex min-h-[52px] flex-[2] items-center justify-center rounded-2xl bg-brand-600 font-bold text-white active:scale-[.98] transition">Kaydet ve Gir</button>
-          </div>
-        </form>
-      </div>
-
-      <!-- PIN girişi -->
-      <div id="pin-kutu" class="mt-6 hidden rounded-3xl bg-white p-5 text-stone-800 shadow-xl">
-        <h2 class="text-lg font-bold">PIN Gir</h2>
-        <p id="pin-adi" class="mb-3 text-sm text-stone-500">—</p>
-        <input id="pin-in" type="password" inputmode="numeric" maxlength="6" pattern="[0-9]*" autocomplete="off"
-          placeholder="••••"
-          class="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 min-h-[52px] text-center text-2xl tracking-[0.5em] outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200" />
-        <p id="pin-hata" class="mt-2 hidden text-sm font-semibold text-rose-600">PIN hatalı, tekrar deneyin.</p>
-        <div class="mt-4 flex gap-2">
-          <button type="button" id="pin-geri"
-            class="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl border-2 border-stone-200 bg-white font-bold text-stone-600 active:scale-[.98] transition">Geri</button>
-          <button type="button" id="pin-gir"
-            class="flex min-h-[52px] flex-1 items-center justify-center rounded-2xl bg-brand-600 font-bold text-white active:scale-[.98] transition">Gir</button>
-        </div>
-      </div>
-
-      <button id="h-yeni" type="button"
-        class="mt-6 flex min-h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-white font-bold text-brand-700 shadow-lg active:scale-[.98] transition">
-        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        Yeni Hasta
-      </button>
-    </div>
-  </div>
-
-  <!-- ============================================================
-       EKRAN 2 — ANA UYGULAMA  (girdikten sonra görünür)
-   ============================================================= -->
-  <div id="app" class="mx-auto hidden min-h-screen max-w-md flex-col bg-stone-50 shadow-2xl">
-
-    <!-- ÜST BAR -->
-    <header
-      class="sticky top-0 z-20 bg-brand-600 text-white shadow-md"
-      style="padding-top: calc(env(safe-area-inset-top) + 1rem); padding-left: 1.25rem; padding-right: 1.25rem; padding-bottom: 1rem;">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/30">
-            <svg class="h-6 w-6 text-white" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M10 3h4a1 1 0 0 1 1 1v5h5a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-5v5a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1v-5H4a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h5V4a1 1 0 0 1 1-1Z"/>
-            </svg>
-          </div>
-          <div>
-            <h1 class="text-xl font-extrabold leading-tight">İlaç Takip</h1>
-            <p id="today-date" class="text-sm font-medium text-brand-50/90">Bugün</p>
-          </div>
+    <!-- ============ EKRAN: HASTA SEÇİMİ ============ -->
+    <section id="ekran-hastalar" class="flex flex-1 flex-col">
+      <header class="sticky top-0 z-10 flex items-center justify-between gap-2 bg-brand-600 px-4 py-4 text-white shadow-md" style="padding-top: env(safe-area-inset-top, 0.5rem);">
+        <div>
+          <h1 class="text-xl font-bold leading-tight">İlaç Takip</h1>
+          <p class="text-xs text-brand-100" id="hasta-sayac">Henüz hasta yok</p>
         </div>
         <div class="flex items-center gap-2">
-          <button id="notif-btn" aria-label="Bildirim izni ver"
-            class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25 active:scale-95 transition">
-            <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
-            </svg>
-          </button>
-          <button id="ayar-btn" aria-label="Ayarlar"
-            class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25 active:scale-95 transition">
-            <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/>
-            </svg>
+          <button id="btn-senkronize" type="button"
+            class="rounded-lg bg-brand-700/60 px-3 py-2 text-sm font-medium transition hover:bg-brand-700"
+            title="Firebase'den verileri çek">
+            Senkronize Et
           </button>
         </div>
-      </div>
-
-      <!-- ANA İÇERİK -->
-      <main class="flex-1 px-4 pb-6 pt-4">
-
-        <!-- Aktif hasta çipi (tıklanınca hasta seçimi açılır) -->
-        <button id="h-cip" type="button"
-          class="mb-4 flex w-full items-center gap-3 rounded-2xl border border-stone-100 bg-white p-3 text-left shadow-sm active:scale-[.99] transition">
-          <span id="h-cip-avatar" class="flex h-11 w-11 items-center justify-center rounded-full bg-brand-600 text-lg font-bold text-white">?</span>
-          <span class="min-w-0 flex-1">
-            <span class="block text-[11px] font-semibold uppercase tracking-wide text-stone-400">Aktif Hasta</span>
-            <span id="h-cip-adi" class="block truncate font-bold text-stone-800">—</span>
-          </span>
-          <span class="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-brand-600">Değiştir
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
-          </span>
-        </button>
-
-        <!-- Gün özeti -->
-        <div class="mb-4 grid grid-cols-3 gap-3">
-          <div class="rounded-2xl border border-stone-100 bg-white p-3 text-center shadow-sm">
-            <p id="summary-total" class="text-2xl font-extrabold text-stone-800">0</p>
-            <p class="text-xs font-semibold text-stone-500">Toplam</p>
-          </div>
-          <div class="rounded-2xl border border-amber-100 bg-amber-50 p-3 text-center">
-            <p id="summary-pending" class="text-2xl font-extrabold text-amber-600">0</p>
-            <p class="text-xs font-semibold text-amber-700">Bekleyen</p>
-          </div>
-          <div class="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-center">
-            <p id="summary-done" class="text-2xl font-extrabold text-emerald-600">0</p>
-            <p class="text-xs font-semibold text-emerald-700">Alınan</p>
-          </div>
-        </div>
-
-        <!-- Boş durum -->
-        <div id="empty-state" class="hidden flex-col items-center justify-center rounded-3xl border-2 border-dashed border-stone-200 bg-white/60 px-6 py-14 text-center">
-          <div class="flex h-20 w-20 items-center justify-center rounded-full bg-brand-50">
-            <svg class="h-10 w-10 text-brand-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 8v4l2 2"/><circle cx="12" cy="12" r="9"/>
-            </svg>
-          </div>
-          <p class="mt-4 text-lg font-bold text-stone-700">Henüz ilaç eklemediniz</p>
-          <p class="mt-1 text-stone-500">Altındaki "Yeni İlaç Ekle" butonunu kullanın.</p>
-        </div>
-
-        <!-- İlaç listesi (JS ile dinamik çizilir) -->
-        <div id="med-list" class="space-y-3"></div>
-      </main>
-
-      <!-- ALT EYLEM ÇUBUĞU -->
-      <footer
-        class="sticky bottom-0 z-20 border-t border-stone-200 bg-white/90 backdrop-blur"
-        style="padding-left: 1.25rem; padding-right: 1.25rem; padding-top: 0.75rem; padding-bottom: max(1rem, env(safe-area-inset-bottom));">
-        <button id="btn-add"
-          class="flex min-h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 text-lg font-bold text-white shadow-lg shadow-brand-600/25 active:scale-[.98] transition">
-          <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          Yeni İlaç Ekle
-        </button>
-      </footer>
-    </div>
-
-    <!-- ============ YENİ / DÜZENLE İLAÇ PANELİ (alttan kayan) ============ -->
-    <div id="panel-add" class="fixed inset-0 z-30 hidden">
-      <div id="panel-overlay" class="absolute inset-0 bg-black/40"></div>
-      <div class="absolute inset-x-0 bottom-0 mx-auto max-w-md rounded-t-3xl bg-white px-6 pt-4 shadow-2xl"
-        style="padding-bottom: max(2rem, env(safe-area-inset-bottom));">
-        <div class="mx-auto mb-4 h-1.5 w-12 rounded-full bg-stone-300"></div>
-        <h2 id="panel-title" class="text-xl font-extrabold text-stone-800">Yeni İlaç</h2>
-        <p id="panel-desc" class="mb-5 text-sm text-stone-500">İlaç bilginizi girin.</p>
-
-        <form id="med-form" class="space-y-4">
-          <div>
-            <label for="ilac-ad" class="mb-1 block font-semibold text-stone-700">İlaç Adı</label>
-            <input id="ilac-ad" name="ad" type="text" required autocomplete="off" placeholder="örn: Parol, Metformin"
-              class="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 min-h-[52px] text-lg text-stone-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200" />
-          </div>
-          <div>
-            <label for="ilac-doz" class="mb-1 block font-semibold text-stone-700">Doz</label>
-            <input id="ilac-doz" name="doz" type="text" autocomplete="off" placeholder="örn: 1 tablet, 5 ml"
-              class="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 min-h-[52px] text-lg text-stone-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200" />
-          </div>
-          <div>
-            <span class="mb-1 block font-semibold text-stone-700">Günde Kaç Kez</span>
-            <div class="flex items-center justify-between rounded-2xl border border-stone-200 bg-stone-50 px-2">
-              <button type="button" id="btn-minus" aria-label="Azalt"
-                class="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-2xl font-bold text-stone-600 shadow-sm active:scale-95 transition">−</button>
-              <span id="count-display" class="text-2xl font-extrabold text-stone-800">1</span>
-              <button type="button" id="btn-plus2" aria-label="Arttır"
-                class="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-2xl font-bold text-stone-600 shadow-sm active:scale-95 transition">+</button>
-            </div>
-          </div>
-          <div>
-            <span class="mb-1 block font-semibold text-stone-700">Alınma Saatleri</span>
-            <div id="time-inputs" class="space-y-2"></div>
-          </div>
-        </form>
-
-        <div class="mt-6 flex gap-3">
-          <button id="btn-cancel"
-            class="flex min-h-[56px] flex-1 items-center justify-center rounded-2xl border-2 border-stone-200 bg-white text-lg font-bold text-stone-600 active:scale-[.98] transition">Vazgeç</button>
-          <button id="btn-save" type="button"
-            class="flex min-h-[56px] flex-[2] items-center justify-center gap-2 rounded-2xl bg-brand-600 text-lg font-bold text-white shadow-lg shadow-brand-600/25 active:scale-[.98] transition">
-            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-            <span id="save-label">Kaydet</span>
-          </button>
-        </div>
-      </div>
-  </div>
-
-  <!-- ============ AYARLAR PANELİ ============ -->
-  <div id="panel-ayar" class="fixed inset-0 z-30 hidden">
-    <div class="mx-auto flex min-h-screen w-full max-w-md flex-col bg-stone-50">
-      <header class="sticky top-0 z-10 flex items-center gap-3 bg-brand-600 px-4 py-3 text-white"
-        style="padding-top: calc(env(safe-area-inset-top) + 0.5rem);">
-        <button id="ayar-kapa" aria-label="Kapat"
-          class="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/25 active:scale-[.98] transition">
-          <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
-        </button>
-        <h1 class="text-xl font-extrabold">Ayarlar</h1>
       </header>
 
-      <div class="flex-1 space-y-6 overflow-y-auto p-5">
+      <div class="flex-1 px-4 py-4">
+        <ul id="hasta-listesi" class="space-y-2"></ul>
 
-        <!-- FIREBASE SINCANIZASYONU -->
-        <section class="rounded-2xl border-2 border-brand-200 bg-brand-50 p-4 shadow-sm">
-          <h2 class="mb-2 text-base font-bold text-brand-800">☁️ Gerçek Zamanlı Senkronizasyon</h2>
-          <p class="mb-3 text-sm text-stone-500">Aile üyeleri uygulamayı açtıkça ilaç durumlarını görüntüler.</p>
-          <div id="firebase-status" class="mb-3 text-sm">
-            <span class="font-semibold text-stone-600">Durum:</span>
-            <span id="firebase-indicator" class="ml-1 text-emerald-600">Etkin</span>
+        <div id="hasta-bos" class="mt-8 hidden text-center">
+          <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-3xl">💊</div>
+          <p class="font-medium text-gray-500">Henüz hasta yok.</p>
+          <p class="text-sm text-gray-400">İlaç takibi için ilk hastanızı ekleyin.</p>
+        </div>
+      </div>
+
+      <div class="px-4 pb-6" style="padding-bottom: calc(env(safe-area-inset-bottom, 0rem) + 1.5rem);">
+        <button id="btn-hasta-ekle" type="button"
+          class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3.5 text-base font-semibold text-white shadow-lg transition hover:bg-brand-700 active:scale-[0.99]">
+          + Yeni Hasta Ekle
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ EKRAN: PIN GİRİŞİ ============ -->
+    <section id="ekran-pin" class="hidden flex-1 flex-col">
+      <header class="sticky top-0 z-10 flex items-center gap-2 bg-brand-600 px-2 py-3 text-white shadow-md" style="padding-top: env(safe-area-inset-top, 0.5rem);">
+        <button id="btn-pin-geri" type="button" class="rounded-lg p-2 transition hover:bg-brand-700">←</button>
+        <span class="text-sm font-medium">Hasta Seçimi</span>
+      </header>
+
+      <div class="flex flex-1 flex-col items-center justify-center px-6 py-10">
+        <div class="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-3xl">🔒</div>
+        <h2 class="text-lg font-semibold text-gray-700">PIN Kodu Gerekli</h2>
+        <p class="mb-6 text-sm text-gray-400"><span id="pin-hasta-ad"></span> hastası için PIN kodunu girin</p>
+
+        <input id="pin-input" type="password" inputmode="numeric" autocomplete="off"
+          maxlength="6" placeholder="••••"
+          class="w-48 rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-center text-2xl tracking-[0.5em] outline-none transition focus:border-brand-500" />
+
+        <p id="pin-hata" class="mt-3 hidden text-sm font-medium text-red-500">Hatalı PIN, tekrar deneyin.</p>
+
+        <div class="mt-6 grid w-full max-w-xs grid-cols-3 gap-2">
+          <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">1</button>
+          <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">2</button>
+          <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">3</button>
+          <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">4</button>
+          <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">5</button>
+          <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">6</button>
+          <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">7</button>
+          <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">8</button>
+          <button type="button" class="pin-tus bg-white py-3 text-xl font-semibold shadow-sm transition active:scale-95 hover:bg-gray-50 rounded-xl">9</button>
+          <button type="button" class="pin-tus-sil col-span-3 bg-gray-100 py-3 text-sm font-medium shadow-sm transition active:scale-95 hover:bg-gray-200 rounded-xl">← Sil</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ EKRAN: HASTA PANELİ ============ -->
+    <section id="ekran-hasta" class="hidden flex-1 flex-col">
+      <header class="sticky top-0 z-10 flex items-center justify-between gap-2 bg-brand-600 px-4 py-3 text-white shadow-md" style="padding-top: env(safe-area-inset-top, 0.5rem);">
+        <button id="btn-hasta-geri" type="button" class="rounded-lg p-2 text-xl transition hover:bg-brand-700">←</button>
+        <div class="min-w-0 flex-1 text-center">
+          <h2 id="aktif-hasta-ad" class="truncate text-lg font-bold leading-tight"></h2>
+          <p id="tarih-bilgi" class="text-xs text-brand-100"></p>
+        </div>
+        <div class="flex items-center gap-1">
+          <button id="btn-ayarlar" type="button" title="Ayarlar"
+            class="rounded-lg p-2 text-xl transition hover:bg-brand-700">⚙️</button>
+        </div>
+      </header>
+
+      <div class="flex-1 px-4 py-4">
+        <div id="ilac-kartlari" class="space-y-3"></div>
+
+        <div id="ilac-bos" class="mt-8 hidden text-center">
+          <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-brand-100 text-3xl">💊</div>
+          <p class="font-medium text-gray-500">Henüz ilaç yok.</p>
+          <p class="text-sm text-gray-400">Bu hasta için ilaç ve doz saati ekleyin.</p>
+        </div>
+      </div>
+
+      <div class="px-4 pb-6" style="padding-bottom: calc(env(safe-area-inset-bottom, 0rem) + 1.5rem);">
+        <button id="btn-ilac-ekle" type="button"
+          class="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3.5 text-base font-semibold text-white shadow-lg transition hover:bg-brand-700 active:scale-[0.99]">
+          + İlaç Ekle
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ MODAL: HASTA FORM ============ -->
+    <div id="modal-hasta-form" class="modal hidden">
+      <div class="modal-panel max-w-sm">
+        <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+          <h3 id="hasta-form-baslik" class="font-semibold">Yeni Hasta</h3>
+          <button type="button" class="modal-kapat rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">✕</button>
+        </div>
+        <div class="space-y-4 px-4 py-4">
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-600">Hasta Adı</label>
+            <input id="hasta-form-ad" type="text" placeholder="Örn. Ayşe Yılmaz" autocomplete="off"
+              class="w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 outline-none transition focus:border-brand-500" />
           </div>
-          <p class="text-xs text-stone-500">Firebase Realtime Database ile senkronize ediliyor.</p>
-        </section>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-600">
+              PIN Kodu <span class="font-normal text-gray-400">(opsiyonel, 4-6 hane)</span>
+            </label>
+            <input id="hasta-form-pin" type="text" inputmode="numeric" maxlength="6" placeholder="Boş bırakılırsa PIN istenmez"
+              autocomplete="off"
+              class="w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 outline-none transition focus:border-brand-500" />
+            <p id="hasta-form-pin-hata" class="mt-1 hidden text-xs text-red-500">PIN 4-6 hane arası olmalıdır.</p>
+          </div>
+        </div>
+        <div class="flex gap-2 border-t border-gray-100 px-4 py-3">
+          <button type="button" class="modal-kapat flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-600 transition hover:bg-gray-200">Vazgeç</button>
+          <button id="btn-hasta-form-kaydet" type="button"
+            class="flex-1 rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white transition hover:bg-brand-700">Kaydet</button>
+        </div>
+      </div>
+    </div>
 
-        <!-- ALARM -->
-        <section class="rounded-2xl border border-stone-100 bg-white p-4 shadow-sm">
-          <h2 class="mb-3 text-base font-bold text-stone-800">Alarm</h2>
-          <label class="mb-4 block">
-            <span class="mb-1 block font-semibold text-stone-600">İlaç saatinden önce uyar</span>
-            <select id="set-onerak"
-              class="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 min-h-[52px] text-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200">
-              <option value="0">Saatte (0 dk önce)</option>
-              <option value="5">5 dk önce</option>
-              <option value="10">10 dk önce</option>
-              <option value="15" selected>15 dk önce</option>
-              <option value="30">30 dk önce</option>
-              <option value="45">45 dk önce</option>
-            </select>
-          </label>
-          <label class="block">
-            <span class="mb-1 block font-semibold text-stone-600">"5 dk ertele" süresi</span>
-            <select id="set-ertele"
-              class="w-full rounded-2xl border border-stone-200 bg-stone-50 px-4 min-h-[52px] text-lg outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-200">
-              <option value="5" selected>5 dk</option>
+    <!-- ============ MODAL: İLAÇ FORM ============ -->
+    <div id="modal-ilac-form" class="modal hidden">
+      <div class="modal-panel max-w-md">
+        <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+          <h3 id="ilac-form-baslik" class="font-semibold">İlaç Ekle</h3>
+          <button type="button" class="modal-kapat rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">✕</button>
+        </div>
+        <div class="max-h-[65vh] space-y-4 overflow-y-auto px-4 py-4">
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-600">İlaç Adı</label>
+            <input id="ilac-form-ad" type="text" placeholder="Örn. Aspirin" autocomplete="off"
+              class="w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 outline-none transition focus:border-brand-500" />
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-600">Doz Bilgisi</label>
+            <input id="ilac-form-doz" type="text" placeholder="Örn. 1 tablet / 500 mg" autocomplete="off"
+              class="w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 outline-none transition focus:border-brand-500" />
+          </div>
+          <div>
+            <div class="mb-1 flex items-center justify-between">
+              <label class="text-sm font-medium text-gray-600">Doz Saatleri <span class="font-normal text-gray-400">(1-8)</span></label>
+              <button id="btn-saat-ekle" type="button"
+                class="rounded-lg bg-brand-50 px-2.5 py-1 text-sm font-medium text-brand-700 transition hover:bg-brand-100">+ Saat Ekle</button>
+            </div>
+            <div id="saat-listesi" class="space-y-2"></div>
+          </div>
+        </div>
+        <div class="flex gap-2 border-t border-gray-100 px-4 py-3">
+          <button type="button" class="modal-kapat flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-600 transition hover:bg-gray-200">Vazgeç</button>
+          <button id="btn-ilac-form-kaydet" type="button"
+            class="flex-1 rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white transition hover:bg-brand-700">Kaydet</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ MODAL: AYARLAR ============ -->
+    <div id="modal-ayarlar" class="modal hidden">
+      <div class="modal-panel max-w-sm">
+        <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+          <h3 class="font-semibold">Ayarlar</h3>
+          <button type="button" class="modal-kapat rounded-lg p-1.5 text-gray-400 transition hover:bg-gray-100 hover:text-gray-600">✕</button>
+        </div>
+        <div class="space-y-6 px-4 py-5">
+          <div>
+            <div class="mb-1 flex items-center justify-between">
+              <label class="text-sm font-medium text-gray-600">Dozdan kaç dk önce hatırlatılsın</label>
+              <span id="onerak-deger" class="text-sm font-bold text-brand-700">15 dk</span>
+            </div>
+            <input id="onerak-range" type="range" min="0" max="45" step="1" value="15"
+              class="w-full accent-brand-600" />
+            <div class="flex justify-between text-xs text-gray-400"><span>0 dk</span><span>45 dk</span></div>
+          </div>
+          <div>
+            <label class="mb-1 block text-sm font-medium text-gray-600">Erteleme Süresi</label>
+            <select id="ertele-select"
+              class="w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 outline-none transition focus:border-brand-500">
+              <option value="5">5 dk</option>
               <option value="10">10 dk</option>
               <option value="15">15 dk</option>
               <option value="20">20 dk</option>
               <option value="30">30 dk</option>
             </select>
-          </label>
-          <div class="mt-4">
-            <p class="text-xs text-stone-500">Alarm, sayfa açıkken çalışır. Ekran açılıp uygulama açık kaldıkça uyarır.</p>
           </div>
-        </section>
-
-        <!-- VERİ YEDEĞİ -->
-        <section class="rounded-2xl border border-stone-100 bg-white p-4 shadow-sm">
-          <h2 class="mb-2 text-base font-bold text-stone-800">Veri Yedeği</h2>
-          <p class="mb-4 text-sm text-stone-500">Telefonu değiştirirseniz ya da tarayıcı verisi silinirse, yedek dosyanızı geri yükleyebilirsiniz. Bu, <b>Aktif hasta</b> verisini yedekler.</p>
-          <div class="space-y-2">
-            <button id="btn-export"
-              class="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 font-bold text-white active:scale-[.98] transition">
-              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-              Dışa Aktar (Paylaş)
-            </button>
-            <button id="btn-export-save"
-              class="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-2 border-brand-500 bg-white font-bold text-brand-700 active:scale-[.98] transition">
-              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-              Yedeği Telefonda Kaydet
-            </button>
-            <button id="btn-import"
-              class="flex min-h-[52px] w-full items-center justify-center gap-2 rounded-2xl border-2 border-brand-500 bg-white font-bold text-brand-700 active:scale-[.98] transition">
-              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/></svg>
-              İçe Aktar (JSON Yükle)
-            </button>
-          </div>
-        </section>
-
-        <div class="space-y-2 pt-2">
-          <p class="text-center text-xs text-stone-500">☁️ <strong>Firebase:</strong> Otomatik olarak veri senkronizasyonu yapılır.</p>
-          <p class="text-center text-xs text-stone-400">📂 <strong>Offline:</strong> Internet yoksa LocalStorage kullanılır.</p>
+        </div>
+        <div class="flex gap-2 border-t border-gray-100 px-4 py-3">
+          <button id="btn-ayar-kaydet" type="button"
+            class="flex-1 rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white transition hover:bg-brand-700">Kaydet</button>
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- ============ ALARM MODAL'I ============ -->
-  <div id="modal-alarm" class="fixed inset-0 z-40 hidden items-center justify-center p-6">
-    <div class="absolute inset-0 bg-black/60"></div>
-    <div class="alarm-card relative w-full max-w-sm rounded-3xl bg-white p-7 text-center shadow-2xl">
-      <div class="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-amber-100">
-        <svg class="h-10 w-10 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>
-        </svg>
+    <!-- ============ MODAL: ALARM ============ -->
+    <div id="modal-alarm" class="modal hidden">
+      <div class="modal-panel max-w-sm text-center">
+        <div class="px-4 py-6">
+          <div id="alarm-darbe" class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 text-3xl">⏰</div>
+          <p id="alarm-hasta" class="text-xs font-medium text-gray-400"></p>
+          <h3 id="alarm-ilac-ad" class="text-xl font-bold text-gray-800"></h3>
+          <p id="alarm-doz" class="mt-1 text-sm text-gray-500"></p>
+          <p id="alarm-saat" class="mt-3 inline-block rounded-full bg-brand-50 px-3 py-1 text-lg font-bold text-brand-700"></p>
+        </div>
+        <div class="grid grid-cols-1 gap-2 border-t border-gray-100 px-4 py-4">
+          <button id="btn-alarm-ertele" type="button"
+            class="rounded-xl bg-amber-50 px-4 py-3 font-medium text-amber-700 transition hover:bg-amber-100">
+            Ertele
+          </button>
+          <button id="btn-alarm-alindi" type="button"
+            class="rounded-xl bg-brand-600 px-4 py-3 font-semibold text-white transition hover:bg-brand-700">
+            Alındı ✓
+          </button>
+        </div>
       </div>
-      <h2 id="alarm-title" class="mt-4 text-2xl font-extrabold text-stone-800">İlaç Zamanı</h2>
-      <p id="alarm-body" class="mt-1 text-stone-500">Şu ilacı almanız gerekiyor:</p>
-      <div id="alarm-med" class="mt-4 rounded-2xl bg-stone-50 p-4 text-stone-700"></div>
-      <button id="btn-alarmtaken"
-        class="mt-6 flex min-h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 text-lg font-bold text-white shadow-lg active:scale-[.98] transition">
-        <span class="text-2xl font-bold">OK</span> Alındı
-      </button>
-      <button id="btn-alarmlater"
-        class="mt-2 flex min-h-[48px] w-full items-center justify-center rounded-2xl text-base font-semibold text-stone-500 active:scale-[.98] transition">
-        5 dk ertele
-      </button>
     </div>
-  </div>
 
-  <!-- ============ GÜN SONU ÖZETİ ============ -->
-  <div id="modal-summary" class="fixed inset-0 z-40 hidden items-center justify-center p-6">
-    <div class="absolute inset-0 bg-black/60"></div>
-    <div class="relative w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl">
-      <h2 class="text-center text-xl font-extrabold text-stone-800">Gün Sonu Özeti</h2>
-      <div id="summary-body" class="mt-4 space-y-2 text-sm text-stone-700"></div>
-      <button id="btn-summary-close" type="button"
-        class="mt-6 flex min-h-[52px] w-full items-center justify-center rounded-2xl bg-brand-600 text-lg font-bold text-white active:scale-[.98] transition">
-        Tamam
-      </button>
+    <!-- ============ MODAL: GÜN SONU ÖZETİ ============ -->
+    <div id="modal-ozet" class="modal hidden">
+      <div class="modal-panel max-w-sm">
+        <div class="px-4 py-5 text-center">
+          <div class="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-3xl">🎉</div>
+          <h3 class="text-lg font-bold text-gray-800">Günün Tüm Dozları Tamamlandı</h3>
+          <p class="mt-1 text-sm text-gray-400">Tebrikler! Bugün planlanan tüm ilaçlar alındı.</p>
+        </div>
+        <div id="ozet-icerik" class="max-h-[40vh] space-y-2 overflow-y-auto px-4 pb-4"></div>
+        <div class="border-t border-gray-100 px-4 py-3">
+          <button id="btn-ozet-kapat" type="button"
+            class="w-full rounded-xl bg-brand-600 px-4 py-2.5 font-semibold text-white transition hover:bg-brand-700">Kapat</button>
+        </div>
+      </div>
     </div>
+
+    <!-- ============ MODAL: ONAY ============ -->
+    <div id="modal-onay" class="modal hidden">
+      <div class="modal-panel max-w-sm">
+        <div class="px-4 py-5 text-center">
+          <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-2xl">🗑️</div>
+          <h3 id="onay-baslik" class="text-base font-bold text-gray-800"></h3>
+          <p id="onay-mesaj" class="mt-1 text-sm text-gray-500"></p>
+        </div>
+        <div class="flex gap-2 border-t border-gray-100 px-4 py-3">
+          <button id="btn-onay-iptal" type="button"
+            class="flex-1 rounded-xl bg-gray-100 px-4 py-2.5 font-medium text-gray-600 transition hover:bg-gray-200">Vazgeç</button>
+          <button id="btn-onay-evvet" type="button"
+            class="flex-1 rounded-xl bg-red-500 px-4 py-2.5 font-semibold text-white transition hover:bg-red-600">Evet, Sil</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ GLOBAL TOAST ============ -->
+    <div id="toast-kapsayici" class="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-2 px-4 pb-6" style="padding-bottom: calc(env(safe-area-inset-bottom, 0rem) + 1.5rem);"></div>
   </div>
-
-  <!-- ============ GEÇİCİ BİLDİRİM (toast) ============ -->
-  <div id="toast"
-    class="pointer-events-none fixed bottom-28 left-1/2 z-50 w-max max-w-[90%] -translate-x-1/2 rounded-full bg-stone-800 px-5 py-3 text-center text-sm font-semibold text-white opacity-0 shadow-lg transition-opacity duration-300"></div>
-
-  <!-- İçe aktarmak için gizli dosya girişi -->
-  <input id="import-file" type="file" accept="application/json,.json" hidden />
 
   <script src="app.bundle.js"></script>
 </body>

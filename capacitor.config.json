@@ -1,6 +1,11 @@
 {
-  "appId": "com.talha.ilactakip",
+  "appId": "com.ilac.takip",
   "appName": "İlaç Takip",
   "webDir": "www",
-  "backgroundColor": "#fafaf9"
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
 }

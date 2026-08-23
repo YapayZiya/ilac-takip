@@ -1,796 +1,979 @@
-/* ===========================================================
-   İLAÇ TAKİP SİSTEMİ — app.js
-   ----------------------------------------------------------
-   Offline-First: Firebase'den veya LocalStorage'dan veri çeker
-   =========================================================== */
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { App } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
+import { ExactAlarm } from '@ilac/exact-alarm';
+import { DB_URL, API_KEY } from './firebase-config.js';
 
-// Capacitor imports - only available in native runtime
-// In PWA these will be undefined, guarded by isNative check
-// import { LocalNotifications } from '@capacitor/local-notifications';
-// import { App } from '@capacitor/app';
-// import { ExactAlarm } from '@ilac/exact-alarm';
+const NATIVE_PLUGINS = { LocalNotifications, App, ExactAlarm };
 
-// Firebase configuration - hardcoded
-const DB_URL = "https://ilac-takip-da59e-default-rtdb.europe-west1.firebasedatabase.app";
-const API_KEY = "AIzaSyCvwNDuE0QFD6K4OcUhJ-688_-MD9k0Jc8";
+const isNative = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform();
 
-// Capacitor is only available in Capacitor runtime, not in PWA
-let isNative = false;
-try {
-  // Check for Capacitor via window global
-  if (typeof window !== 'undefined' && window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function') {
-    isNative = window.Capacitor.isNativePlatform();
+const K = {
+  hastalar: 'ilac_takip:hastalar',
+  aktif: 'ilac_takip:aktif',
+  noti: 'ilac_takip:noti',
+  exactAsked: 'ilac_takip:exact-asked',
+  batteryAsked: 'ilac_takip:battery-asked'
+};
+
+const SAAT_ONERILERI = ['09:00', '14:00', '20:00', '08:00', '12:00', '18:00', '21:00', '07:00'];
+const AKTIF_PENCERE_DK = 120;
+
+const byId = (id) => document.getElementById(id);
+
+function hastaIlacKey(id) { return 'ilac_takip:ilac:' + id; }
+function hastaAlindiKey(id) { return 'ilac_takip:alindi:' + id; }
+function hastaAyarKey(id) { return 'ilac_takip:ayar:' + id; }
+function ozetKey(id) { return 'ilac_takip:ozet:' + id; }
+
+function yukle(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    return v === null ? fallback : JSON.parse(v);
+  } catch (e) {
+    return fallback;
   }
-} catch { isNative = false; }
+}
+function kaydet(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { console.warn('localStorage hatası', e); }
+}
 
-(() => {
-  'use strict';
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+function bugunKey() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function tarihDeltaKey(gun) {
+  const d = new Date();
+  d.setDate(d.getDate() + gun);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function saatDegerleri(saat) {
+  const p = saat.split(':');
+  return [Number(p[0]), Number(p[1])];
+}
+function buguneSaat(saat) {
+  const [h, m] = saatDegerleri(saat);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d;
+}
+function tariheSaat(tarihKey, saat) {
+  const p = tarihKey.split('-');
+  const [h, m] = saatDegerleri(saat);
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), h, m, 0, 0);
+}
+function alindiKey(ilacId, saat) {
+  return ilacId + '|' + bugunKey() + '|' + saat;
+}
+function tarihliAlindiKey(ilacId, tarihKey, saat) {
+  return ilacId + '|' + tarihKey + '|' + saat;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function keyHash(key) {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function bugunTurkce() {
+  const gunler = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+  const aylar = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+  const d = new Date();
+  return gunler[d.getDay()] + ', ' + d.getDate() + ' ' + aylar[d.getMonth()] + ' ' + d.getFullYear();
+}
+function saatBiçim(zaman) {
+  const d = new Date(zaman);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
 
-  const $  = (sel, root = document) => root.querySelector(sel);
-  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+/* ============ DURUM ============ */
+let hastalar = yukle(K.hastalar, []);
+let aktifHastaId = null;
+let aktifHasta = null;
+let aktifIlaclar = [];
+let aktifAlindi = {};
+let aktifAyarlar = { onerakDk: 15, erteleDk: 5 };
+let aktifEkran = 'ekran-hastalar';
+let acikModallar = [];
+let pinHasta = null;
+let duzenlenenHasta = null;
+let duzenlenenIlac = null;
+let ilacFormSaatler = ['09:00'];
+let alarmKuyrugu = [];
+let ertelenenler = {};
+let alarmAcikKey = null;
+let onayCallback = null;
+let sonTarihKey = bugunKey();
 
-  const GUNLER = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
-  const AYLAR  = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
-                  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+function hastaDurum(hastaId) {
+  const hasta = hastalar.find((h) => h.id === hastaId);
+  return {
+    hasta: hasta,
+    ilaclar: hasta ? yukle(hastaIlacKey(hastaId), []) : [],
+    alindi: hasta ? yukle(hastaAlindiKey(hastaId), {}) : {},
+    ayarlar: hasta ? Object.assign({ onerakDk: 15, erteleDk: 5 }, yukle(hastaAyarKey(hastaId), {})) : { onerakDk: 15, erteleDk: 5 }
+  };
+}
 
-  const pad = (n) => String(n).padStart(2, '0');
-  const saatDM = (dt) => `${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
-  const dateStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const todayStr = () => dateStr(new Date());
-  const parseTime = (t) => { const [h, m] = t.split(':').map(Number); const d = new Date(); d.setHours(h, m, 0, 0); return d; };
-  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const slug = (s) => (String(s) || 'ilac').toLocaleLowerCase('tr').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ı/g, 'i').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'ilac';
-  function bugunTarihTR(d = new Date()) { return `${GUNLER[d.getDay()]}, ${d.getDate()} ${AYLAR[d.getMonth()]} ${d.getFullYear()}`; }
+/* ============ EKRAN YÖNETİMİ ============ */
+const EKRANLAR = ['ekran-hastalar', 'ekran-pin', 'ekran-hasta'];
+function gosterEkran(id) {
+  EKRANLAR.forEach((e) => byId(e).classList.toggle('hidden', e !== id));
+  aktifEkran = id;
+}
+function modalAc(id) {
+  byId(id).classList.remove('hidden');
+  if (!acikModallar.includes(id)) acikModallar.push(id);
+}
+function modalKapat(id) {
+  byId(id).classList.add('hidden');
+  acikModallar = acikModallar.filter((m) => m !== id);
+}
+function tümModallariKapat() {
+  acikModallar.slice().forEach((m) => modalKapat(m));
+}
+function modalAcikMı() {
+  return acikModallar.length > 0;
+}
 
-  const AVATAR = ['bg-teal-600', 'bg-indigo-500', 'bg-rose-500', 'bg-amber-500', 'bg-emerald-600', 'bg-fuchsia-600', 'bg-sky-500', 'bg-slate-600'];
-  const avatarRenk = (ad) => { let s = 0; for (const c of (ad || '?')) s += c.charCodeAt(0); return AVATAR[s % AVATAR.length]; };
-  const harf = (ad) => (ad || '?').trim().charAt(0).toLocaleUpperCase('tr');
-  const genId = () => `med_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-  const genHastaId = () => `h_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'rounded-xl bg-gray-800 px-4 py-2.5 text-sm font-medium text-white shadow-lg';
+  el.textContent = msg;
+  byId('toast-kapsayici').appendChild(el);
+  setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; }, 2000);
+  setTimeout(() => el.remove(), 2400);
+}
 
-  // --------------------------------------------------
-  // LocalStorage keys
-  // --------------------------------------------------
-  const K_LIST  = 'ilac_takip:hastalar';
-  const K_AKTIF = 'ilac_takip:aktif';
-  const K_DEFAULT = { onerakDk: 15, erteleDk: 5 };
-  const SON_PENCERE_DK = 120;
-  const ADIM_S = 15000;
+/* ============ HASTA SEÇİM EKRANI ============ */
+function hastaListesiniCiz() {
+  const ul = byId('hasta-listesi');
+  ul.innerHTML = '';
+  byId('hasta-sayac').textContent = hastalar.length ? hastalar.length + ' hasta' : 'Henüz hasta yok';
+  byId('hasta-bos').classList.toggle('hidden', hastalar.length > 0);
+  hastalar.forEach((h) => {
+    const ilacSayisi = yukle(hastaIlacKey(h.id), []).length;
+    const li = document.createElement('li');
+    li.innerHTML =
+      '<button data-hasta-id="' + h.id + '" class="hasta-karti flex w-full items-center gap-3 rounded-xl bg-white p-4 text-left shadow-sm transition hover:shadow-md active:scale-[0.99]">' +
+      '<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-100 text-lg font-bold text-brand-700">' + escapeHtml((h.ad || '?').charAt(0).toUpperCase()) + '</div>' +
+      '<div class="min-w-0 flex-1">' +
+      '<p class="truncate font-semibold text-gray-800">' + escapeHtml(h.ad) + '</p>' +
+      '<p class="text-xs text-gray-400">' + ilacSayisi + ' ilaç' + (h.pin ? ' · 🔒 PIN korumalı' : '') + '</p>' +
+      '</div>' +
+      '<span class="text-gray-300">›</span>' +
+      '</button>';
+    li.querySelector('.hasta-karti').addEventListener('click', () => hastaKartiTıkla(h));
+    ul.appendChild(li);
+  });
+}
 
-  function readJSON(key, fallback) {
-    try { const v = JSON.parse(localStorage.getItem(key)); return (v === null || v === undefined) ? fallback : v; }
-    catch { return fallback; }
+function hastaKartiTıkla(hasta) {
+  if (hasta.pin) {
+    pinEkraniniAc(hasta);
+  } else {
+    hastaPaneliAc(hasta.id);
   }
-  function writeJSON(key, val) {
-    try { localStorage.setItem(key, JSON.stringify(val)); }
-    catch (e) { console.warn('Yazım başarısız:', e); }
+}
+
+/* ============ PIN EKRANI ============ */
+function pinEkraniniAc(hasta) {
+  pinHasta = hasta;
+  byId('pin-hasta-ad').textContent = hasta.ad;
+  byId('pin-input').value = '';
+  byId('pin-hata').classList.add('hidden');
+  gosterEkran('ekran-pin');
+  setTimeout(() => byId('pin-input').focus(), 50);
+}
+function pinDogrula() {
+  const deger = byId('pin-input').value;
+  if (pinHasta && deger === String(pinHasta.pin)) {
+    const id = pinHasta.id;
+    pinHasta = null;
+    hastaPaneliAc(id);
+  } else {
+    byId('pin-hata').classList.remove('hidden');
+    byId('pin-input').value = '';
   }
-  const medKey  = (pid) => `ilac_takip:ilac:${pid}`;
-  const doneKey = (pid) => `ilac_takip:alindi:${pid}`;
-  const setKey  = (pid) => `ilac_takip:ayar:${pid}`;
+}
+function pinTusBas(d) {
+  const inp = byId('pin-input');
+  if (d === 'sil') {
+    inp.value = inp.value.slice(0, -1);
+  } else if (inp.value.length < 6) {
+    inp.value += d;
+  }
+  byId('pin-hata').classList.add('hidden');
+  if (pinHasta && inp.value.length === String(pinHasta.pin).length) {
+    pinDogrula();
+  }
+}
 
-  function getHastalar() { const l = readJSON(K_LIST, []); return Array.isArray(l) ? l : []; }
-  function saveHastalar(l) { writeJSON(K_LIST, l); }
-  function getAktifId() { try { return localStorage.getItem(K_AKTIF); } catch { return null; } }
-  function setAktifId(id) { try { id ? localStorage.setItem(K_AKTIF, id) : localStorage.removeItem(K_AKTIF); } catch {} }
+/* ============ HASTA PANELİ ============ */
+function hastaPaneliAc(hastaId) {
+  aktifHastaId = hastaId;
+  kaydet(K.aktif, hastaId);
+  aktifHasta = hastalar.find((h) => h.id === hastaId);
+  if (!aktifHasta) { gosterEkran('ekran-hastalar'); return; }
+  const durum = hastaDurum(hastaId);
+  aktifIlaclar = durum.ilaclar;
+  aktifAlindi = durum.alindi;
+  aktifAyarlar = durum.ayarlar;
+  byId('aktif-hasta-ad').textContent = aktifHasta.ad;
+  byId('tarih-bilgi').textContent = bugunTurkce();
+  gosterEkran('ekran-hasta');
+  ilacKartlariniCiz();
+  alarmKontrolu();
+  gunSonuKontrol();
+}
 
-  function getAyar() { if (!aktifPid) return { ...K_DEFAULT }; return Object.assign({}, K_DEFAULT, readJSON(setKey(aktifPid), {})); }
-  function saveAyar(pid, a) { if (!pid) return; writeJSON(setKey(pid), a); }
+function aktifVerileriTazele() {
+  if (!aktifHastaId) return;
+  const durum = hastaDurum(aktifHastaId);
+  aktifIlaclar = durum.ilaclar;
+  aktifAlindi = durum.alindi;
+  aktifAyarlar = durum.ayarlar;
+}
 
-  function getMeds() { if (!aktifPid) return []; const m = readJSON(medKey(aktifPid), []); return Array.isArray(m) ? m : []; }
-  function setMeds(a) { if (!aktifPid) return; writeJSON(medKey(aktifPid), a); }
-  function getDone() { if (!aktifPid) return {}; const d = readJSON(doneKey(aktifPid), {}); return (d && typeof d === 'object') ? d : {}; }
-  function setDone(d) { if (!aktifPid) return; writeJSON(doneKey(aktifPid), d); }
+/* ============ İLAÇ KARTLARI ============ */
+function ilacKartlariniCiz() {
+  if (aktifEkran !== 'ekran-hasta') return;
+  const bugun = bugunKey();
+  let dozlar = [];
+  aktifIlaclar.forEach((ilac) => {
+    (ilac.times || []).forEach((saat) => {
+      dozlar.push({ ilac: ilac, saat: saat, key: tarihliAlindiKey(ilac.id, bugun, saat) });
+    });
+  });
+  dozlar.sort((a, b) => a.saat.localeCompare(b.saat));
 
-  let aktifPid = null;
-  let aktifHasta = null;
+  const kap = byId('ilac-kartlari');
+  kap.innerHTML = '';
+  byId('ilac-bos').classList.toggle('hidden', dozlar.length > 0);
 
-  // --------------------------------------------------
-  // Firebase sync functions
-  // --------------------------------------------------
-  async function fetchFromFirebase(path, timeoutMs = 6000) {
-    if (!navigator.onLine) return null;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const url = `${DB_URL}${path}.json?auth=${API_KEY}`;
-      console.log('Fetching:', url);
-      const res = await fetch(url, { method: 'GET', mode: 'cors', signal: controller.signal });
-      console.log('Response:', res.status, res.ok);
-      if (!res.ok) {
-        console.warn('Firebase response not ok:', res.status);
-        return null;
-      }
-      const data = await res.json();
-      return data;
-    } catch (e) {
-      console.error('Firebase fetch hatası/timeout:', e);
-      return null;
-    } finally {
-      clearTimeout(timer);
+  const now = Date.now();
+  dozlar.forEach((doz) => {
+    const alindiT = aktifAlindi[doz.key];
+    const doseT = buguneSaat(doz.saat);
+    const onerakMs = (aktifAyarlar.onerakDk || 15) * 60000;
+    let durum, etiket, renk, rozet, cizgi;
+    if (alindiT) {
+      durum = 'alindi';
+      etiket = 'Alındı';
+      rozet = 'bg-green-100 text-green-700';
+      renk = 'border-green-200 bg-green-50';
+      cizgi = 'bg-green-500';
+    } else if (now < doseT.getTime() - onerakMs) {
+      durum = 'bekliyor';
+      etiket = 'Bekliyor';
+      rozet = 'bg-amber-100 text-amber-700';
+      renk = 'border-amber-200 bg-amber-50';
+      cizgi = 'bg-amber-500';
+    } else if (now <= doseT.getTime() + AKTIF_PENCERE_DK * 60000) {
+      durum = now < doseT.getTime() ? 'yakin' : 'gecikti';
+      etiket = now < doseT.getTime() ? 'Yaklaşıyor' : 'Gecikti ⏰';
+      rozet = 'bg-red-100 text-red-700';
+      renk = 'border-red-200 bg-red-50';
+      cizgi = 'bg-red-500';
+    } else {
+      durum = 'gecti';
+      etiket = 'Geçti';
+      rozet = 'bg-gray-200 text-gray-500';
+      renk = 'border-gray-200 bg-gray-50';
+      cizgi = 'bg-gray-400';
+    }
+
+    const kart = document.createElement('div');
+    kart.className = 'flex items-stretch gap-3 rounded-xl border ' + renk + ' p-4 shadow-sm';
+    kart.innerHTML =
+      '<div class="w-1.5 shrink-0 rounded-full ' + cizgi + '"></div>' +
+      '<div class="min-w-0 flex-1">' +
+      '<div class="flex items-start justify-between gap-2">' +
+      '<div class="min-w-0">' +
+      '<p class="font-semibold leading-tight text-gray-800">' + escapeHtml(doz.ilac.ad) + '</p>' +
+      (doz.ilac.doz ? '<p class="text-xs text-gray-500">' + escapeHtml(doz.ilac.doz) + '</p>' : '') +
+      '</div>' +
+      '<span class="shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ' + rozet + '">' + etiket + '</span>' +
+      '</div>' +
+      '<div class="mt-2 flex items-center justify-between">' +
+      '<span class="text-lg font-bold text-gray-700">' + doz.saat + '</span>' +
+      (alindiT
+        ? '<span class="text-xs font-medium text-green-600">✓ ' + saatBiçim(alindiT) + '</span>'
+        : '<button data-alindi="' + doz.key + '" data-ilac-id="' + doz.ilac.id + '" data-saat="' + doz.saat + '" class="btn-alindi rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-700 active:scale-95">Alındı ✓</button>') +
+      '</div>' +
+      '</div>';
+    kap.appendChild(kart);
+  });
+}
+
+/* ============ ALARM MOTORU (15 SN) ============ */
+function alarmKontrolu() {
+  if (byId('modal-alarm').classList.contains('hidden') === false) return;
+  const now = Date.now();
+  const bugun = bugunKey();
+  hastalar.forEach((hasta) => {
+    const durum = hastaDurum(hasta.id);
+    const onerakMs = (durum.ayarlar.onerakDk || 15) * 60000;
+    durum.ilaclar.forEach((ilac) => {
+      (ilac.times || []).forEach((saat) => {
+        const key = tarihliAlindiKey(ilac.id, bugun, saat);
+        if (durum.alindi[key]) return;
+        const t = buguneSaat(saat).getTime();
+        if (now < t - onerakMs || now > t + AKTIF_PENCERE_DK * 60000) return;
+        if (ertelenenler[key] && ertelenenler[key] > now) return;
+        if (alarmKuyrugu.some((e) => e.key === key)) return;
+        if (alarmAcikKey === key) return;
+        alarmKuyrugu.push({ hastaId: hasta.id, ilac: ilac, saat: saat, key: key });
+      });
+    });
+  });
+  alarmSıradakiniGoster();
+}
+
+function alarmSıradakiniGoster() {
+  if (byId('modal-alarm').classList.contains('hidden') === false) return;
+  const giris = alarmKuyrugu.shift();
+  if (!giris) return;
+  const durum = hastaDurum(giris.hastaId);
+  if (!durum.hasta || durum.alindi[giris.key]) {
+    alarmSıradakiniGoster();
+    return;
+  }
+  alarmAcikKey = giris.key;
+  byId('alarm-hasta').textContent = durum.hasta.ad;
+  byId('alarm-ilac-ad').textContent = giris.ilac.ad;
+  byId('alarm-doz').textContent = giris.ilac.doz || (giris.ilac.times.length + ' doz');
+  byId('alarm-saat').textContent = giris.saat;
+  byId('btn-alarm-ertele').textContent = 'Ertele (' + (durum.ayarlar.erteleDk || 5) + ' dk)';
+  modalAc('modal-alarm');
+  bipCal();
+  tarayiciBildirimGoster('İlaç zamanı: ' + giris.ilac.ad, durum.hasta.ad + ' · ' + giris.saat);
+}
+
+function alarmAlindiTıkla() {
+  if (!alarmAcikKey) return;
+  const key = alarmAcikKey;
+  alarmAcikKey = null;
+  modalKapat('modal-alarm');
+  const hedef = bulKuyrukKaynagi(key);
+  if (hedef) {
+    ilacAlindi(hedef.hastaId, hedef.ilacId, hedef.saat, Date.now());
+  }
+  alarmSıradakiniGoster();
+}
+function alarmErteleTıkla() {
+  if (!alarmAcikKey) return;
+  const key = alarmAcikKey;
+  alarmAcikKey = null;
+  const hedef = bulKuyrukKaynagi(key);
+  if (hedef) {
+    const durum = hastaDurum(hedef.hastaId);
+    const dk = durum.ayarlar.erteleDk || 5;
+    ertelenenler[key] = Date.now() + dk * 60000;
+    toast('Erteleme: ' + dk + ' dk sonra tekrar hatırlatılacak');
+  }
+  modalKapat('modal-alarm');
+  alarmSıradakiniGoster();
+}
+function bulKuyrukKaynagi(key) {
+  for (const h of hastalar) {
+    const durum = hastaDurum(h.id);
+    const bulunan = durum.ilaclar.find((ilac) => durum.alindi[key] === undefined && (ilac.times || []).some((s) => tarihliAlindiKey(ilac.id, bugunKey(), s) === key));
+    if (bulunan) {
+      const saat = key.split('|')[2];
+      return { hastaId: h.id, ilacId: bulunan.id, saat: saat };
     }
   }
+  return null;
+}
 
-  async function pushToFirebase(path, data, timeoutMs = 6000) {
-    if (!navigator.onLine) return false;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const url = `${DB_URL}${path}.json?auth=${API_KEY}`;
-      await fetch(url, { method: 'PUT', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' }, signal: controller.signal });
-      return true;
-    } catch (e) {
-      console.warn('Firebase push hatası/timeout:', e);
-      return false;
-    } finally {
-      clearTimeout(timer);
-    }
+function ilacAlindi(hastaId, ilacId, saat, zamani) {
+  const depoKey = hastaAlindiKey(hastaId);
+  const alindi = yukle(depoKey, {});
+  const key = tarihliAlindiKey(ilacId, bugunKey(), saat);
+  alindi[key] = zamani || Date.now();
+  kaydet(depoKey, alindi);
+  delete ertelenenler[key];
+  alarmKuyrugu = alarmKuyrugu.filter((e) => e.key !== key);
+  nativeBildirimIptal(key);
+  if (aktifHastaId === hastaId) {
+    aktifAlindi = alindi;
+    ilacKartlariniCiz();
+    gunSonuKontrol();
   }
+  nativeDozBildirimleriniKur(hastaId);
+  firebasePushHasta(hastaId);
+}
 
-  async function loadHastalarFromFirebase() {
-    const data = await fetchFromFirebase('/patients');
-    if (data) {
-      const hastalar = Object.entries(data).map(([id, p]) => ({ id, ...p }));
-      saveHastalar(hastalar);
-      return hastalar;
-    }
-    return getHastalar();
-  }
-
-  async function loadMedsAndDoneFromFirebase(pid) {
-    const [medsData, doneData] = await Promise.all([
-      fetchFromFirebase(`/patients/${pid}/meds`),
-      fetchFromFirebase(`/patients/${pid}/done`)
-    ]);
-    if (medsData) writeJSON(medKey(pid), medsData);
-    if (doneData) writeJSON(doneKey(pid), doneData);
-  }
-
-  async function syncAllToFirebase() {
-    const hastalar = getHastalar();
-    for (const h of hastalar) {
-      const meds = readJSON(medKey(h.id), []);
-      const done = readJSON(doneKey(h.id), {});
-      await Promise.all([
-        pushToFirebase(`/patients/${h.id}/meds`, meds),
-        pushToFirebase(`/patients/${h.id}/done`, done)
-      ]);
-    }
-  }
-
-  // --------------------------------------------------
-  // Toasts
-  // --------------------------------------------------
-  let toastTimer = null;
-  function toast(msg) {
-    const el = $('#toast'); if (!el) return;
-    el.textContent = msg; el.classList.remove('opacity-0');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.add('opacity-0'), 2400);
-  }
-
-  // --------------------------------------------------
-  // CRUD (aktif hasta)
-  // --------------------------------------------------
-  function ilacKaydet(v) { const m = getMeds(); m.push({ id: genId(), ad: v.ad, doz: v.doz, times: v.times, updatedAt: Date.now() }); setMeds(m); pushToFirebase(`/patients/${aktifPid}/meds`, getMeds()); }
-  function ilacGuncelle(id, v) { const m = getMeds(); const x = m.find((o) => o.id === id); if (x) { x.ad = v.ad; x.doz = v.doz; x.times = v.times; x.updatedAt = Date.now(); } setMeds(m); pushToFirebase(`/patients/${aktifPid}/meds`, getMeds()); }
-  function ilacSil(id) {
-    setMeds(getMeds().filter((m) => m.id !== id));
-    const d = getDone(); Object.keys(d).forEach((k) => { if (k.split('|')[0] === id) delete d[k]; }); setDone(d);
-    pushToFirebase(`/patients/${aktifPid}/meds`, getMeds());
-  }
-  function ilacAlindi(id, time, pid) {
-    const pidUse = pid || aktifPid; if (!pidUse) return;
-    const d = readJSON(doneKey(pidUse), {});
-    d[`${id}|${todayStr()}|${time}`] = Date.now(); pruneDone(d); writeJSON(doneKey(pidUse), d);
-    pushToFirebase(`/patients/${pidUse}/done`, d);
-  }
-  function pruneDone(d) { const cut = Date.now() - 14 * 86400000; Object.keys(d).forEach((k) => { if (d[k] < cut) delete d[k]; }); }
-
-  // --------------------------------------------------
-  // Native notifications
-  // --------------------------------------------------
-  const NOTI_KEY = 'ilac_takip:noti';
-  let nativeAktif = false;
-  let exactAlarmToastShown = false;
-
-  async function setupNative() {
-    if (!isNative) return;
-    try {
-      LocalNotifications.addListener('localNotificationsActionPerformed', onNotiAction);
-      let perm = await LocalNotifications.checkPermissions();
-      if (!perm || perm.display !== 'granted') perm = await LocalNotifications.requestPermissions();
-      nativeAktif = !!(perm && perm.display === 'granted');
-      if (nativeAktif) {
-        await LocalNotifications.createChannel({
-          id: 'med-reminders', name: 'İlaç Hatırlatıcıları',
-          description: 'İlaç zamanı geldiğinde çalacak alarm.',
-          importance: 5, visibility: 'public', sound: 'default', vibration: true,
-        }).catch(() => {});
-        await tamBildirimIzniKontrol();
-        await exactAlarmKazandir();
-        await pilOptimizasyonKontrol();
-        App.addListener('resume', onAppResume);
-        App.addListener('backButton', onBackButton);
-      }
-    } catch (e) { nativeAktif = false; }
-  }
-
-  function onBackButton() {
-    const ayarPanel = $('#panel-ayar');
-    if (ayarPanel && !ayarPanel.classList.contains('hidden')) ayarKapa();
-    else if (!$('#modal-summary').classList.contains('hidden')) { $('#modal-summary').classList.add('hidden'); $('#modal-summary').classList.remove('flex'); }
-    else if (!$('#modal-alarm').classList.contains('hidden')) modalGizle();
-  }
-
-  async function pilOptimizasyonKontrol() {
-    if (!isNative || !nativeAktif) return;
-    try {
-      const res = await ExactAlarm.requestIgnoreBatteryOptimizations();
-      if (res && res.opened) toast('Pil optimizasyonunu kapatmak için ayarlardan "İzin ver" deyin.');
-    } catch (e) {}
-  }
-
-  function notiIdForKey(k) {
-    let h = 0;
-    for (const c of k) h = (h * 31 + c.charCodeAt(0)) | 0;
-    return Math.abs(h % 2000000000);
-  }
-
-  function findPidByMed(medId) {
-    for (const h of getHastalar()) {
-      const arr = readJSON(medKey(h.id), []);
-      if (Array.isArray(arr) && arr.some((m) => m.id === medId)) return h.id;
-    }
-    return null;
-  }
-
-  async function onNotiAction(e) {
-    const n = e && e.notification;
-    if (!n || e.actionId !== 'taken') return;
-    const map = readJSON(NOTI_KEY, {});
-    const key = map[n.id];
-    if (!key) return;
-    const parts = key.split('|');
-    const medId = parts[0], time = parts[2];
-    const ownsActive = aktifPid && readJSON(medKey(aktifPid), []).some((m) => m.id === medId);
-    const pid = ownsActive ? aktifPid : findPidByMed(medId);
-    if (pid) ilacAlindi(medId, time, pid);
-    try { await LocalNotifications.cancel({ notifications: [{ id: n.id }] }); } catch {}
-    delete map[n.id]; writeJSON(NOTI_KEY, map);
-    if (pid === aktifPid) { listeyiCiz(); notiPlanla(); }
-    toast('Alındı olarak işaretlendi.');
-  }
-
-  async function tamBildirimIzniKontrol() {
-    if (!isNative || !nativeAktif) return;
-    let r;
-    try { r = await ExactAlarm.canSchedule(); } catch { return; }
-    if (r && r.needsNotifyPermission) {
-      toast('⚠ Bildirim izni gerekli.');
-      try { await ExactAlarm.requestNotifyPermission(); } catch (e) {}
-    }
-  }
-
-  async function exactAlarmKazandir() {
-    if (!isNative || !nativeAktif) return;
-    let r;
-    try { r = await ExactAlarm.canSchedule(); } catch (e) { return; }
-    if (r && r.canSchedule) return;
-    toast('⚠ Tam Zamanlı Alarm izni gerekli.');
-    try { await ExactAlarm.request(); } catch (e) {}
-  }
-
-  async function onAppResume() {
-    if (!isNative || !nativeAktif) return;
-    let r;
-    try { r = await ExactAlarm.canSchedule(); } catch { return; }
-    if (r && r.canSchedule && aktifPid) await notiPlanla();
-  }
-
-  async function notiPlanla() {
-    if (!(isNative && nativeAktif)) return;
-    try {
-      const prev = readJSON(NOTI_KEY, {});
-      const prevIds = Object.keys(prev).map(Number).filter((id) => !Number.isNaN(id));
-      if (prevIds.length) { try { await LocalNotifications.cancel({ notifications: prevIds.map((id) => ({ id })) }); } catch (e) {} }
-      const meds = getMeds();
-      const ayar = getAyar();
-      const done = getDone();
-      const list = [];
-      const map = {};
-      for (const m of meds) {
-        if (!Array.isArray(m.times) || !m.times.length) continue;
-        for (const time of m.times) {
-          const raw = String(time).trim();
-          if (!raw) continue;
-          const t0 = parseTime(raw);
-          const todayTaken = !!done[`${m.id}|${todayStr()}|${raw}`];
-          const hedef = (todayTaken || t0.getTime() <= Date.now()) ? new Date(t0.getTime() + 86400000) : t0;
-          let hedefZaman = hedef.getTime() - ayar.onerakDk * 60000;
-          if (hedefZaman < Date.now()) hedefZaman = Date.now();
-          const key = `${m.id}|${dateStr(hedef)}|${raw}`;
-          const yeniId = Math.abs(Math.floor(hedefZaman / 1000) + (notiIdForKey(key) % 100000));
-          map[yeniId] = key;
-          list.push({
-            id: yeniId, title: m.ad, body: `${raw} · ${m.doz || 'doz'}`,
-            smallIcon: 'ic_stat_notify', color: '#0d9488', channelId: 'med-reminders',
-            importance: 5, priority: 4, visibility: 'public',
-            vibrationPattern: [0, 300, 200, 300, 200, 300], allowWhileIdle: true,
-            schedule: { at: new Date(hedefZaman).toISOString() },
-            actions: [{ id: 'taken', type: 'button', title: 'Alındı ✓' }],
-          });
-        }
-      }
-      if (!list.length) { writeJSON(NOTI_KEY, {}); return; }
-      const fresh = new Set(Object.keys(map));
-      Object.keys(prev).forEach((k) => { if (!fresh.has(String(k))) delete prev[k]; });
-      Object.assign(prev, map);
-      writeJSON(NOTI_KEY, prev);
-      await LocalNotifications.schedule({ notifications: list });
-    } catch (e) { console.error('Alarm planlanamadı:', e); }
-  }
-
-  // --------------------------------------------------
-  // Alarm & Time control
-  // --------------------------------------------------
-  const alerted = new Set();
-  const deferred = new Map();
-  let queue = [];
-  let audioCtx = null;
-
-  const slotKey = (id, time) => `${id}|${todayStr()}|${time}`;
-
-  function getAudioCtx() {
-    if (!('AudioContext' in window)) return null;
+/* ============ SES + TARAYICI BİLDİRİMİ ============ */
+let audioCtx = null;
+function sesKilidiniAc() {
+  try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    return audioCtx;
+  } catch (e) {}
+}
+function bipCal() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const t = audioCtx.currentTime;
+    [880, 660].forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.001, t + i * 0.3);
+      gain.gain.exponentialRampToValueAtTime(0.6, t + i * 0.3 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.3 + 0.28);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t + i * 0.3);
+      osc.stop(t + i * 0.3 + 0.3);
+    });
+  } catch (e) {}
+}
+async function tarayiciBildirimGoster(title, body) {
+  try {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'default') await Notification.requestPermission();
+    if (Notification.permission === 'granted') {
+      new Notification(title, { body: body, icon: 'icons/icon-192.png' });
+    }
+  } catch (e) {}
+}
+
+/* ============ GÜN SONU ÖZETİ ============ */
+function gunSonuKontrol() {
+  if (!aktifHastaId) return;
+  const bugun = bugunKey();
+  const durum = hastaDurum(aktifHastaId);
+  if (!durum.ilaclar.length) return;
+  if (yukle(ozetKey(aktifHastaId), null) === bugun) return;
+  const dozlar = [];
+  durum.ilaclar.forEach((ilac) => {
+    (ilac.times || []).forEach((saat) => {
+      dozlar.push({ ilac: ilac, saat: saat, key: tarihliAlindiKey(ilac.id, bugun, saat) });
+    });
+  });
+  const bekleyen = dozlar.filter((d) => !durum.alindi[d.key]);
+  if (bekleyen.length) return;
+  kaydet(ozetKey(aktifHastaId), bugun);
+  const kap = byId('ozet-icerik');
+  kap.innerHTML = '';
+  dozlar.sort((a, b) => a.saat.localeCompare(b.saat));
+  dozlar.forEach((d) => {
+    const alindiT = durum.alindi[d.key];
+    const satir = document.createElement('div');
+    satir.className = 'flex items-center justify-between rounded-xl px-3 py-2 ' + (alindiT ? 'bg-green-50' : 'bg-red-50');
+    satir.innerHTML =
+      '<div><p class="text-sm font-semibold text-gray-700">' + escapeHtml(d.ilac.ad) + '</p><p class="text-xs text-gray-400">' + d.saat + '</p></div>' +
+      (alindiT
+        ? '<span class="text-sm font-semibold text-green-600">✓ ' + saatBiçim(alindiT) + '</span>'
+        : '<span class="text-sm font-semibold text-red-500">Geçti</span>');
+    kap.appendChild(satir);
+  });
+  modalAc('modal-ozet');
+}
+
+/* ============ HASTA FORM (ekle/düzenle/sil) ============ */
+function hastaFormunuAc(hasta) {
+  duzenlenenHasta = hasta || null;
+  byId('hasta-form-baslik').textContent = hasta ? 'Hastayı Düzenle' : 'Yeni Hasta';
+  byId('hasta-form-ad').value = hasta ? hasta.ad : '';
+  byId('hasta-form-pin').value = hasta ? (hasta.pin || '') : '';
+  byId('hasta-form-pin-hata').classList.add('hidden');
+  modalAc('modal-hasta-form');
+  setTimeout(() => byId('hasta-form-ad').focus(), 50);
+}
+function hastaFormKaydet() {
+  const ad = byId('hasta-form-ad').value.trim();
+  const pin = byId('hasta-form-pin').value.trim();
+  if (!ad) { toast('Hasta adı gerekli'); return; }
+  if (pin && !/^\d{4,6}$/.test(pin)) {
+    byId('hasta-form-pin-hata').classList.remove('hidden');
+    return;
   }
-  function bipSesi() {
-    const ctx = getAudioCtx(); if (!ctx) return;
-    const t0 = ctx.currentTime;
-    const beep = (start, freq, dur) => {
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'sine'; o.frequency.value = freq; o.connect(g); g.connect(ctx.destination);
-      o.start(t0 + start);
-      g.gain.setValueAtTime(0.0001, t0 + start);
-      g.gain.exponentialRampToValueAtTime(0.28, t0 + start + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + start + dur);
-      o.stop(t0 + start + dur + 0.02);
-    };
-    beep(0, 880, 0.18); beep(0.28, 1175, 0.24);
+  byId('hasta-form-pin-hata').classList.add('hidden');
+  let kaydedilenId = null;
+  if (duzenlenenHasta) {
+    const h = hastalar.find((x) => x.id === duzenlenenHasta.id);
+    if (h) { h.ad = ad; h.pin = pin || ''; }
+    kaydedilenId = duzenlenenHasta.id;
+  } else {
+    kaydedilenId = uid();
+    hastalar.push({ id: kaydedilenId, ad: ad, pin: pin || '' });
   }
-  function bildirimGonder(med) {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  kaydet(K.hastalar, hastalar);
+  modalKapat('modal-hasta-form');
+  duzenlenenHasta = null;
+  hastaListesiniCiz();
+  firebasePushHasta(kaydedilenId);
+}
+function hastaSil(hastaId) {
+  const idx = hastalar.findIndex((h) => h.id === hastaId);
+  if (idx === -1) return;
+  const silinenMedler = yukle(hastaIlacKey(hastaId), []);
+  hastalar.splice(idx, 1);
+  kaydet(K.hastalar, hastalar);
+  localStorage.removeItem(hastaIlacKey(hastaId));
+  localStorage.removeItem(hastaAlindiKey(hastaId));
+  localStorage.removeItem(hastaAyarKey(hastaId));
+  localStorage.removeItem(ozetKey(hastaId));
+  nativeBildirimleriIptalEt(silinenMedler.map((m) => m.id));
+  if (aktifHastaId === hastaId) {
+    aktifHastaId = null;
+    aktifHasta = null;
+    aktifIlaclar = [];
+    aktifAlindi = {};
+    aktifAyarlar = { onerakDk: 15, erteleDk: 5 };
+  }
+  firebasePut('/patients/' + hastaId, null);
+  hastaListesiniCiz();
+}
+
+/* ============ İLAÇ FORM ============ */
+function ilacFormunuAc(ilac) {
+  duzenlenenIlac = ilac || null;
+  byId('ilac-form-baslik').textContent = ilac ? 'İlaç Düzenle' : 'İlaç Ekle';
+  byId('ilac-form-ad').value = ilac ? ilac.ad : '';
+  byId('ilac-form-doz').value = ilac ? (ilac.doz || '') : '';
+  ilacFormSaatler = ilac && ilac.times && ilac.times.length ? ilac.times.slice() : [SAAT_ONERILERI[0]];
+  saatListesiCiz();
+  modalAc('modal-ilac-form');
+  setTimeout(() => byId('ilac-form-ad').focus(), 50);
+}
+function saatListesiCiz() {
+  const kap = byId('saat-listesi');
+  kap.innerHTML = '';
+  ilacFormSaatler.forEach((saat, i) => {
+    const satir = document.createElement('div');
+    satir.className = 'saat-satiri flex items-center gap-2';
+    satir.innerHTML =
+      '<input type="time" value="' + saat + '" class="saat-input w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 text-lg outline-none transition focus:border-brand-500" />' +
+      '<button type="button" class="btn-saat-sil rounded-lg bg-red-50 px-3 py-2.5 text-red-500 transition hover:bg-red-100">✕</button>';
+    satir.querySelector('.saat-input').addEventListener('change', (e) => { ilacFormSaatler[i] = e.target.value; });
+    satir.querySelector('.btn-saat-sil').addEventListener('click', () => { ilacFormSaatler.splice(i, 1); saatListesiCiz(); });
+    kap.appendChild(satir);
+  });
+  byId('btn-saat-ekle').disabled = ilacFormSaatler.length >= 8;
+}
+function saatEkle() {
+  if (ilacFormSaatler.length >= 8) return;
+  const kullanilan = new Set(ilacFormSaatler);
+  const oneri = SAAT_ONERILERI.find((s) => !kullanilan.has(s)) || '09:00';
+  ilacFormSaatler.push(oneri);
+  saatListesiCiz();
+}
+function ilacFormKaydet() {
+  const ad = byId('ilac-form-ad').value.trim();
+  const doz = byId('ilac-form-doz').value.trim();
+  if (!ad) { toast('İlaç adı gerekli'); return; }
+  const times = Array.from(new Set(ilacFormSaatler.filter(Boolean))).sort();
+  if (!times.length) { toast('En az bir doz saati gerekli'); return; }
+  const now = Date.now();
+  if (duzenlenenIlac) {
+    const ilac = aktifIlaclar.find((m) => m.id === duzenlenenIlac.id);
+    if (ilac) {
+      ilac.ad = ad;
+      ilac.doz = doz;
+      ilac.times = times;
+      ilac.updatedAt = now;
+    }
+  } else {
+    aktifIlaclar.push({ id: uid(), ad: ad, doz: doz, times: times, updatedAt: now });
+  }
+  kaydet(hastaIlacKey(aktifHastaId), aktifIlaclar);
+  modalKapat('modal-ilac-form');
+  duzenlenenIlac = null;
+  ilacKartlariniCiz();
+  nativeDozBildirimleriniKur(aktifHastaId);
+  firebasePushHasta(aktifHastaId);
+}
+function ilacSil(ilacId) {
+  aktifIlaclar = aktifIlaclar.filter((m) => m.id !== ilacId);
+  kaydet(hastaIlacKey(aktifHastaId), aktifIlaclar);
+  const alindi = {};
+  Object.keys(aktifAlindi).forEach((k) => { if (!k.startsWith(ilacId + '|')) alindi[k] = aktifAlindi[k]; });
+  aktifAlindi = alindi;
+  kaydet(hastaAlindiKey(aktifHastaId), alindi);
+  alarmKuyrugu = alarmKuyrugu.filter((e) => e.ilac.id !== ilacId);
+  nativeDozBildirimleriniKur(aktifHastaId);
+  ilacKartlariniCiz();
+  firebasePushHasta(aktifHastaId);
+}
+
+/* ============ AYARLAR ============ */
+function ayarlarPaneliniAc() {
+  byId('onerak-range').value = aktifAyarlar.onerakDk;
+  byId('ertele-select').value = String(aktifAyarlar.erteleDk);
+  byId('onerak-deger').textContent = aktifAyarlar.onerakDk + ' dk';
+  modalAc('modal-ayarlar');
+}
+function ayarlariKaydet() {
+  aktifAyarlar.onerakDk = Number(byId('onerak-range').value);
+  aktifAyarlar.erteleDk = Number(byId('ertele-select').value);
+  kaydet(hastaAyarKey(aktifHastaId), aktifAyarlar);
+  byId('onerak-deger').textContent = aktifAyarlar.onerakDk + ' dk';
+  modalKapat('modal-ayarlar');
+  toast('Ayarlar kaydedildi');
+  ilacKartlariniCiz();
+}
+
+/* ============ ONAY MODALI ============ */
+function onaySor(baslik, mesaj, cb) {
+  byId('onay-baslik').textContent = baslik;
+  byId('onay-mesaj').textContent = mesaj;
+  onayCallback = cb;
+  modalAc('modal-onay');
+}
+function onayEvvet() {
+  modalKapat('modal-onay');
+  const cb = onayCallback;
+  onayCallback = null;
+  if (cb) cb();
+}
+
+/* ============ NATIVE BİLDİRİMLER ============ */
+async function nativeBildirimIptal(key) {
+  if (!isNative) return;
+  try {
+    const notiMap = yukle(K.noti, {});
+    const ids = [];
+    Object.keys(notiMap).forEach((id) => { if (notiMap[id] === key) ids.push(Number(id)); });
+    if (ids.length) {
+      await LocalNotifications.cancel({ notifications: ids.map((id) => ({ id: id })) });
+    }
+    ids.forEach((id) => delete notiMap[id]);
+    kaydet(K.noti, notiMap);
+  } catch (e) { console.warn('Native bildirim iptal hatası', e); }
+}
+async function nativeBildirimleriIptalEt(medIds) {
+  if (!isNative || !medIds.length) return;
+  try {
+    const notiMap = yukle(K.noti, {});
+    const silinecek = [];
+    Object.keys(notiMap).forEach((id) => {
+      const ilacId = notiMap[id].split('|')[0];
+      if (medIds.includes(ilacId)) {
+        silinecek.push(Number(id));
+        delete notiMap[id];
+      }
+    });
+    if (silinecek.length) {
+      await LocalNotifications.cancel({ notifications: silinecek.map((id) => ({ id: id })) });
+    }
+    kaydet(K.noti, notiMap);
+  } catch (e) { console.warn('Native bildirim temizleme hatası', e); }
+}
+async function nativeDozBildirimleriniKur(hastaId) {
+  if (!isNative) return;
+  try {
+    const perms = await LocalNotifications.checkPermissions();
+    if (perms.display !== 'granted') return;
+    const notiMap = yukle(K.noti, {});
+    const hedefler = hastaId ? hastalar.filter((h) => h.id === hastaId) : hastalar;
+    const plan = [];
+    const planAnahtarlari = new Set();
+    hedefler.forEach((hasta) => {
+      const durum = hastaDurum(hasta.id);
+      for (let gun = 0; gun < 2; gun++) {
+        const tarih = tarihDeltaKey(gun);
+        durum.ilaclar.forEach((ilac) => {
+          (ilac.times || []).forEach((saat) => {
+            const key = tarihliAlindiKey(ilac.id, tarih, saat);
+            if (durum.alindi[key]) {
+              nativeBildirimIptal(key);
+              return;
+            }
+            const t = tariheSaat(tarih, saat).getTime();
+            const onerakMs = (durum.ayarlar.onerakDk || 15) * 60000;
+            const zaman = t - onerakMs;
+            if (zaman <= Date.now()) return;
+            const id = keyHash(key);
+            notiMap[id] = key;
+            planAnahtarlari.add(key);
+            plan.push({
+              id: id,
+              title: 'İlaç zamanı: ' + ilac.ad,
+              body: hasta.ad + ' · ' + saat + (ilac.doz ? ' · ' + ilac.doz : ''),
+              schedule: { at: new Date(zaman) },
+              actionTypeId: 'alindi',
+              extra: { hastaId: hasta.id, ilacId: ilac.id, saat: saat, key: key }
+            });
+          });
+        });
+      }
+    });
+    const silinecek = [];
+    Object.keys(notiMap).forEach((id) => {
+      if (!planAnahtarlari.has(notiMap[id])) {
+        silinecek.push(Number(id));
+        delete notiMap[id];
+      }
+    });
+    if (silinecek.length) {
+      await LocalNotifications.cancel({ notifications: silinecek.map((id) => ({ id: id })) });
+    }
+    kaydet(K.noti, notiMap);
+    if (plan.length) {
+      await LocalNotifications.schedule({ notifications: plan });
+    }
+  } catch (e) { console.warn('Native bildirim kurma hatası', e); }
+}
+
+/* ============ NATIVE İZİNLER ============ */
+async function nativeIzinleriAyarla() {
+  if (!isNative) return;
+  try {
+    await LocalNotifications.registerActionTypes({
+      types: [{ id: 'alindi', actions: [{ id: 'alindi', title: 'Alındı ✓' }] }]
+    });
+    const perms = await LocalNotifications.requestPermissions();
+    if (perms.display !== 'granted') console.warn('Bildirim izni verilmedi');
     try {
-      new Notification(med ? `İlaç Zamanı · ${med.ad}` : 'İlaç Takip', {
-        body: med ? `${med.doz || 'doz'} — şimdi alınmalı` : 'Bildirimler çalışıyor.',
-        icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'ilac-takip',
-      });
-    } catch (e) {}
-  }
-  async function izinIste() {
-    if (isNative) {
-      try {
-        const perm = await LocalNotifications.checkPermissions();
-        if (perm.display !== 'granted') {
-          const newPerm = await LocalNotifications.requestPermissions();
-          toast(newPerm.display === 'granted' ? 'Bildirim izni verildi.' : 'Bildirim izni reddedildi.');
-        } else { toast('Bildirim izni zaten verilmiş.'); }
-      } catch (e) { toast('Bildirim izni istenemedi.'); }
-      return;
-    }
-    if (!('Notification' in window)) { toast('Tarayıcınız bildirimi desteklemiyor.'); return; }
-    let p = Notification.permission;
-    if (p === 'default') { try { p = await Notification.requestPermission(); } catch { p = Notification.permission; } }
-    if (p === 'granted') { toast('Bildirimler açık.'); bildirimGonder(null); }
-    else if (p === 'denied') toast('Bildirimler kapalı.');
-    else toast('Bildirimi açmak için onay verin.');
-  }
-
-  function modalGoster(item) {
-    currentDue = item;
-    $('#alarm-title').textContent = `${item.time} · ${item.med.ad}`;
-    $('#alarm-body').textContent = 'Şu ilacı almanız gerekiyor:';
-    $('#alarm-med').textContent = item.med.doz || 'doz belirtilmedi';
-    $('#btn-alarmlater').textContent = `${getAyar().erteleDk} dk ertele`;
-    const m = $('#modal-alarm'); m.classList.remove('hidden'); m.classList.add('flex');
-    const card = m.querySelector('.alarm-card');
-    if (card) { card.classList.remove('alarm-shake'); void card.offsetWidth; card.classList.add('alarm-shake'); }
-    $('#btn-alarmtaken').onclick = () => almIsaretle(item.med, item.time);
-    $('#btn-alarmlater').onclick = () => ertele(item);
-  }
-  function modalGizle() { currentDue = null; const m = $('#modal-alarm'); m.classList.add('hidden'); m.classList.remove('flex'); }
-  function kuyruguIsle() { if (currentDue) return; if (queue.length) modalGoster(queue.shift()); else modalGizle(); }
-
-  function almIsaretle(med, time) {
-    ilacAlindi(med.id, time);
-    const k = slotKey(med.id, time);
-    alerted.delete(k); deferred.delete(k);
-    queue = queue.filter((q) => slotKey(q.med.id, q.time) !== k);
-    if (currentDue && slotKey(currentDue.med.id, currentDue.time) === k) currentDue = null;
-    if (isNative && nativeAktif) {
-      const map = readJSON(NOTI_KEY, {});
-      const pendingIds = Object.entries(map).filter(([_, v]) => v.startsWith(`${med.id}|`)).map(([id, _]) => Number(id));
-      if (pendingIds.length) LocalNotifications.cancel({ notifications: pendingIds.map((id) => ({ id })) }).catch(() => {});
-    }
-    listeyiCiz(); kuyruguIsle();
-    const now = new Date();
-    const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-    toast(`${med.ad} ${time} → ${ts} — Alındı ✓`);
-    const meds = getMeds();
-    const done = getDone();
-    const ds = todayStr();
-    const hasNotYetDue = meds.some((m) => m.times.some((t) => {
-      if (done[`${m.id}|${ds}|${t}`]) return false;
-      return parseTime(t).getTime() > now;
-    }));
-    if (!hasNotYetDue) setTimeout(gunSonuOzetGoster, 600);
-  }
-  function ertele(item) {
-    const ayar = getAyar();
-    const k = slotKey(item.med.id, item.time);
-    deferred.set(k, Date.now() + ayar.erteleDk * 60000);
-    alerted.delete(k);
-    queue = queue.filter((q) => q !== item);
-    if (currentDue === item) currentDue = null;
-    toast(`${ayar.erteleDk} dk ertelendi.`);
-    kuyruguIsle();
-  }
-
-  function kontrol() {
-    if (!aktifPid) return;
-    const meds = getMeds(); if (!meds.length) return;
-    const done = getDone(); const ayar = getAyar(); const now = new Date();
-    const yeni = [];
-    for (const m of meds) {
-      for (const time of m.times) {
-        const k = slotKey(m.id, time);
-        if (done[k]) continue;
-        const defer = deferred.get(k);
-        if (defer && Date.now() < defer) continue;
-        const t0 = parseTime(time);
-        const basla = t0.getTime() - ayar.onerakDk * 60000;
-        const bit = t0.getTime() + SON_PENCERE_DK * 60000;
-        if (now >= basla && now <= bit && !alerted.has(k)) { alerted.add(k); yeni.push({ med: m, time }); }
+      const sonuc = await ExactAlarm.canScheduleExactAlarms();
+      if (!sonuc.value && !yukle(K.exactAsked, false)) {
+        kaydet(K.exactAsked, true);
+        await ExactAlarm.requestScheduleExactAlarm();
       }
-    }
-    if (yeni.length) {
-      bipSesi();
-      const g = new Set(); yeni.forEach((x) => { if (!g.has(x.med.id)) { g.add(x.med.id); bildirimGonder(x.med); } });
-      queue.push(...yeni); kuyruguIsle();
-    }
-  }
-  function zamanKontroluBaslat() {
-    kontrol(); setInterval(kontrol, ADIM_S);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) kontrol(); });
-  }
-
-  // --------------------------------------------------
-  // Patient list
-  // --------------------------------------------------
-  function listeyiCiz() {
-    const list = $('#med-list'), empty = $('#empty-state');
-    const meds = getMeds(), done = getDone(), now = new Date(), ds = todayStr();
-    const inst = [];
-    for (const m of meds) {
-      for (const time of m.times) {
-        const isDone = !!done[`${m.id}|${ds}|${time}`];
-        const overdue = !isDone && now >= parseTime(time);
-        inst.push({ med: m, time, isDone, overdue });
+    } catch (e) { console.warn('Tam zamanlı alarm izni alınamadı', e); }
+    try {
+      if (!yukle(K.batteryAsked, false)) {
+        kaydet(K.batteryAsked, true);
+        await ExactAlarm.requestIgnoreBatteryOptimizations();
       }
-    }
-    inst.sort((a, b) => a.time === b.time ? a.med.ad.localeCompare(b.med.ad, 'tr') : a.time.localeCompare(b.time));
-    list.innerHTML = '';
-    if (!inst.length) {
-      list.classList.add('hidden'); empty.classList.remove('hidden'); empty.classList.add('flex');
-      ozetiGuncelle(0, 0); return;
-    }
-    empty.classList.add('hidden'); empty.classList.remove('flex'); list.classList.remove('hidden');
-    const gosterilen = new Set();
-    for (const it of inst) {
-      const first = !gosterilen.has(it.med.id);
-      if (first) gosterilen.add(it.med.id);
-      list.appendChild(kartOlustur(it, first, done));
-    }
-    ozetiGuncelle(inst.length, inst.filter((i) => i.isDone).length);
-    const pending = inst.filter((i) => !i.isDone);
-    if (pending.length) {
-      const kart = list.querySelector(`[data-time="${pending[pending.length - 1].time}"][data-med="${pending[pending.length - 1].med.id}"]`);
-      if (kart) kart.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
-  }
+    } catch (e) { console.warn('Pil optimizasyonu muafiyeti istenemedi', e); }
+    await nativeDozBildirimleriniKur();
+  } catch (e) { console.warn('Native izinler hatası', e); }
+}
 
-  function kartOlustur(it, firstMed, done) {
-    const { med, time, isDone, overdue } = it;
-    const durum = isDone ? 'done' : overdue ? 'overdue' : 'pending';
-    const el = document.createElement('article');
-    el.className = `med-card flex items-center gap-3 rounded-2xl border border-l-4 p-4 ` + {
-      done: 'border-emerald-100 border-l-emerald-500 bg-emerald-50',
-      overdue: 'border-rose-100 border-l-rose-500 bg-rose-50 is-overdue',
-      pending: 'border-stone-100 border-l-amber-400 bg-white shadow-sm',
-    }[durum];
-    el.dataset.time = time; el.dataset.med = med.id;
-    const rozetArk = isDone ? 'bg-emerald-100 text-emerald-700' : overdue ? 'bg-rose-100 text-rose-700' : 'bg-amber-50 text-amber-700';
-    const rozetYazi = isDone ? 'Alındı' : overdue ? 'Geçti' : 'Bekleniyor';
-    const adRengi = isDone ? 'text-stone-700' : overdue ? 'text-rose-900' : 'text-stone-800';
-    const dozRengi = overdue ? 'text-rose-700/80' : 'text-stone-500';
-    let gosterilenZaman = time;
-    if (isDone && done) {
-      const takenKey = `${med.id}|${todayStr()}|${time}`;
-      const takenTs = done[takenKey];
-      if (takenTs) gosterilenZaman = `${pad(new Date(takenTs).getHours())}:${pad(new Date(takenTs).getMinutes())}`;
-    }
-    let kontrol;
-    if (isDone) {
-      kontrol = `<div class="flex h-11 min-w-[52px] shrink-0 items-center justify-center rounded-xl bg-emerald-500 px-3 text-white"><svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></div>`;
-    } else {
-      const btn = overdue ? 'bg-rose-600 text-white' : 'border-2 border-emerald-500 bg-white text-emerald-600';
-      kontrol = `<button type="button" data-take title="Alındı işaretle" class="flex min-h-[44px] min-w-[64px] shrink-0 items-center justify-center rounded-xl px-4 text-sm font-bold active:scale-95 transition ${btn}">Alındı</button>`;
-    }
-    const eylemler = firstMed ? `<div class="flex shrink-0 gap-1">
-      <button type="button" data-edit aria-label="Düzenle" title="Düzenle" class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 hover:bg-stone-100 hover:text-stone-600 active:scale-95 transition"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
-      <button type="button" data-del aria-label="Sil" title="Sil" class="flex h-11 w-11 items-center justify-center rounded-xl text-stone-400 hover:bg-rose-100 hover:text-rose-600 active:scale-95 transition"><svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
-    </div>` : '';
-    el.innerHTML = `<div class="flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-xl ${rozetArk}"><span class="text-lg font-bold leading-none">${gosterilenZaman}</span><span class="mt-1 text-[11px] font-semibold">${rozetYazi}</span></div>
-      <div class="min-w-0 flex-1"><h3 class="truncate text-lg font-semibold ${adRengi}">${esc(med.ad)}</h3><p class="truncate text-sm ${dozRengi}">${esc(med.doz || 'doz')} · Günde ${med.times.length}</p></div>
-      ${eylemler}${kontrol}`;
-    el.querySelector('[data-take]')?.addEventListener('click', () => almIsaretle(med, time));
-    el.querySelector('[data-edit]')?.addEventListener('click', () => panelAcDuzenle(med));
-    el.querySelector('[data-del]')?.addEventListener('click', () => {
-      if (window.confirm(`"${med.ad}" ilacını silmek istediğinize emin misiniz?`)) { ilacSil(med.id); listeyiCiz(); notiPlanla(); toast('İlaç silindi.'); }
+/* ============ FIREBASE ============ */
+async function firebaseGet(path, timeoutMs) {
+  if (!navigator.onLine) return null;
+  const ms = timeoutMs || 6000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(DB_URL + path + '.json?auth=' + API_KEY, { signal: controller.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    console.error('Firebase timeout/hata:', e);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+async function firebasePut(path, data, timeoutMs) {
+  if (!navigator.onLine) return false;
+  const ms = timeoutMs || 6000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(DB_URL + path + '.json?auth=' + API_KEY, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: data === null ? null : JSON.stringify(data),
+      signal: controller.signal
     });
-    return el;
+    return res.ok;
+  } catch (e) {
+    console.warn('Firebase yazma hatası:', e);
+    return false;
+  } finally {
+    clearTimeout(timer);
   }
-
-  function ozetiGuncelle(toplam, alinan) {
-    $('#summary-total').textContent = toplam;
-    $('#summary-pending').textContent = Math.max(0, toplam - alinan);
-    $('#summary-done').textContent = alinan;
+}
+function firebasePushHasta(hastaId) {
+  const hasta = hastalar.find((h) => h.id === hastaId);
+  if (!hasta) return;
+  const durum = hastaDurum(hastaId);
+  firebasePut('/patients/' + hastaId, { ad: hasta.ad, pin: hasta.pin || '', meds: durum.ilaclar, done: durum.alindi });
+}
+function medListesiniBirlestir(local, cloud) {
+  const map = new Map();
+  local.forEach((m) => map.set(m.id, m));
+  cloud.forEach((m) => { if (m && m.id) map.set(m.id, m); });
+  return Array.from(map.values());
+}
+async function senkronizeEt() {
+  let guncellendi = false;
+  for (const hasta of hastalar) {
+    const veri = await firebaseGet('/patients/' + hasta.id);
+    if (!veri) continue;
+    if (veri.ad) {
+      Object.assign(hasta, { ad: veri.ad, pin: veri.pin || '' });
+      guncellendi = true;
+    }
+    if (Array.isArray(veri.meds) && veri.meds.length) {
+      const mevcut = yukle(hastaIlacKey(hasta.id), []);
+      kaydet(hastaIlacKey(hasta.id), medListesiniBirlestir(mevcut, veri.meds));
+      guncellendi = true;
+    }
+    if (veri.done && typeof veri.done === 'object') {
+      const mevcut = yukle(hastaAlindiKey(hasta.id), {});
+      kaydet(hastaAlindiKey(hasta.id), Object.assign({}, veri.done, mevcut));
+      guncellendi = true;
+    }
   }
+  if (guncellendi) {
+    kaydet(K.hastalar, hastalar);
+    hastaListesiniCiz();
+    if (aktifHastaId) {
+      aktifVerileriTazele();
+      ilacKartlariniCiz();
+    }
+  }
+  toast('Veriler senkronize edildi');
+}
 
-  function gunSonuOzetGoster() {
-    const meds = getMeds(), done = getDone(), ds = todayStr();
-    const body = $('#summary-body'); body.innerHTML = '';
-    if (!meds.length) { $('#modal-summary').classList.add('hidden'); $('#modal-summary').classList.remove('flex'); return; }
-    const lines = [];
-    for (const m of meds) {
-      for (const time of m.times) {
-        const key = `${m.id}|${ds}|${time}`;
-        const takenTs = done[key];
-        if (takenTs) {
-          lines.push(`<div class="flex items-center justify-between rounded-xl bg-emerald-50 px-3 py-2"><span class="font-semibold text-emerald-800">${esc(m.ad)} ${time}</span><span class="text-emerald-700">Alındı ${pad(new Date(takenTs).getHours())}:${pad(new Date(takenTs).getMinutes())}</span></div>`);
-        } else {
-          lines.push(`<div class="flex items-center justify-between rounded-xl bg-rose-50 px-3 py-2"><span class="font-semibold text-rose-800">${esc(m.ad)} ${time}</span><span class="text-rose-700">Atlandı</span></div>`);
-        }
+/* ============ GERİ TUŞU (NATIVE) ============ */
+function nativeGeriTusunuKur() {
+  if (!isNative) return;
+  try {
+    App.addListener('backButton', () => {
+      if (modalAcikMı()) {
+        tümModallariKapat();
+        return;
       }
-    }
-    body.innerHTML = lines.join('');
-    $('#modal-summary').classList.remove('hidden'); $('#modal-summary').classList.add('flex');
-  }
-
-  // --------------------------------------------------
-  // Patient selection flow
-  // --------------------------------------------------
-  let currentDue = null;
-  let yeniHastaId = null;
-  let pinHedef = null;
-
-  function hastaGir(pid, opts = {}) {
-    const h = getHastalar().find((x) => x.id === pid); if (!h) return;
-    if (h.pin && h.pin.length && !opts.pinAtlandi) { pinKutuAc(h); return; }
-    aktifPid = pid; aktifHasta = h; setAktifId(pid);
-    alerted.clear(); deferred.clear(); queue = []; currentDue = null; modalGizle();
-    appGoster(); $('#h-cip-adi').textContent = h.ad; $('#h-cip-avatar').textContent = harf(h.ad);
-    $('#h-cip-avatar').className = 'flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold text-white ' + avatarRenk(h.ad);
-    loadAyarSec(); listeyiCiz();
-    notiPlanla();
-  }
-
-  function hastaSil(id) {
-    const h = getHastalar().find((x) => x.id === id); if (!h) return;
-    if (!window.confirm(`"${h.ad}" ve tüm ilaç kayıtları silinecek. Emin misiniz?`)) return;
-    saveHastalar(getHastalar().filter((x) => x.id !== id));
-    try { localStorage.removeItem(medKey(id)); localStorage.removeItem(doneKey(id)); localStorage.removeItem(setKey(id)); } catch {}
-    if (aktifPid === id) { aktifPid = null; aktifHasta = null; setAktifId(null); }
-    listeyiCizHastalar(); toast('Hasta silindi.');
-  }
-
-  // --------------------------------------------------
-  // Event handlers
-  // --------------------------------------------------
-  function listeyiCizHastalar() {
-    const box = $('#h-liste');
-    const list = getHastalar();
-    box.innerHTML = '';
-    if (!list.length) {
-      box.innerHTML = '<p class="rounded-2xl bg-white/15 px-4 py-6 text-center text-brand-50">Henüz hasta yok.</p>';
-      return;
-    }
-    list.forEach((h) => {
-      const el = document.createElement('div');
-      el.className = 'flex items-center gap-2';
-      el.innerHTML = `
-        <button type="button" data-enter data-id="${h.id}" class="flex min-h-[56px] flex-1 items-center gap-3 rounded-2xl bg-white/95 p-3 text-left text-stone-800">
-          <span class="flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold text-white ${avatarRenk(h.ad)}">${esc(harf(h.ad))}</span>
-          <span class="min-w-0 flex-1"><span class="block truncate text-lg font-bold">${esc(h.ad)}</span><span class="block text-xs ${h.pin ? 'text-amber-600' : 'text-stone-400'}">${h.pin ? '🔒 PIN korumalı' : 'İlaç takip'}</span></span>
-        </button>
-        <button type="button" data-sil data-id="${h.id}" aria-label="Sil" class="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white/90 active:scale-95 transition">
-          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
-        </button>`;
-      el.querySelector('[data-enter]').addEventListener('click', () => hastaGir(h.id));
-      el.querySelector('[data-sil]').addEventListener('click', () => hastaSil(h.id));
-      box.appendChild(el);
-    });
-  }
-
-  function pinKutuAc(h) {
-    pinHedef = h; $('#pin-adi').textContent = h.ad;
-    $('#pin-hata').classList.add('hidden'); $('#pin-in').value = '';
-    $('#pin-kutu').classList.remove('hidden');
-    setTimeout(() => $('#pin-in')?.focus(), 60);
-  }
-
-  function pinKont() {
-    const v = ($('#pin-in').value || '').replace(/\D/g, '');
-    if (pinHedef && v === (pinHedef.pin || '')) {
-      $('#pin-kutu').classList.add('hidden');
-      hastaGir(pinHedef.id);
-    } else {
-      $('#pin-hata').classList.remove('hidden'); $('#pin-in').value = ''; $('#pin-in').focus();
-    }
-  }
-
-  function appGoster() {
-    document.body.classList.remove('no-scroll');
-    $('#screen-hasta').classList.add('hidden');
-    $('#app').classList.remove('hidden'); $('#app').classList.add('flex');
-  }
-
-  function appGizle() {
-    document.body.classList.remove('no-scroll');
-    $('#screen-hasta').classList.remove('hidden');
-    $('#app').classList.add('hidden');
-  }
-
-  function loadAyarSec() { const a = getAyar(); $('#set-onerak').value = String(a.onerakDk); $('#set-ertele').value = String(a.erteleDk); }
-  function ayarKaydet(k, v) { const a = getAyar(); a[k] = v; saveAyar(aktifPid, a); toast('Ayarlar kaydedildi.'); }
-
-  // --------------------------------------------------
-  // DOMContentLoaded
-  // --------------------------------------------------
-  document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOMContentLoaded fired');
-    $('#today-date').textContent = bugunTarihTR();
-
-    // Ensure patient screen is visible
-    appGizle();
-    console.log('Patient screen shown');
-
-    // 1) ÖNCE yerel veriyle HEMEN çiz - kullanıcı asla boş/donuk ekran görmesin
-    listeyiCizHastalar();
-    console.log('List rendered (local)');
-
-    // 2) SONRA Firebase'i arka planda, zaman aşımlı şekilde dene
-    if (navigator.onLine) {
-      (async () => {
-        try {
-          console.log('Loading from Firebase...');
-          await loadHastalarFromFirebase();
-          listeyiCizHastalar(); // güncel veriyle yeniden çiz
-          console.log('List rendered (Firebase sync complete)');
-        } catch (e) {
-          console.error('Firebase sync failed, local data still showing:', e);
-        }
-      })();
-    }
-
-    // Patient selection events
-    console.log('Attaching events...');
-    document.getElementById('h-yeni')?.addEventListener('click', () => { console.log('Yeni Hasta clicked'); yeniHastaId = null; $('#h-ad').value = ''; $('#h-pin').value = ''; $('#h-yeni-title').textContent = 'Yeni Hasta'; $('#h-kaydet').textContent = 'Kaydet ve Gir'; $('#hasta-form').reset(); $('#yeni-kutu').classList.remove('hidden'); setTimeout(() => $('#h-ad')?.focus(), 60); });
-    document.getElementById('h-iptal')?.addEventListener('click', () => { $('#yeni-kutu').classList.add('hidden'); });
-    document.getElementById('h-geri')?.addEventListener('click', () => { appGizle(); listeyiCizHastalar(); });
-    document.getElementById('hasta-form')?.addEventListener('submit', (e) => { e.preventDefault();
-      const ad = $('#h-ad').value.trim();
-      let pin = $('#h-pin').value.replace(/\D/g, '').slice(0, 6);
-      if (!ad) { toast('Hasta adı gerekli.'); return; }
-      if (pin && (pin.length < 4 || pin.length > 6)) { toast('PIN 4-6 haneli olmalı.'); return; }
-      const list = getHastalar();
-      if (yeniHastaId) {
-        const h = list.find((x) => x.id === yeniHastaId);
-        if (h) { h.ad = ad; h.pin = pin; }
-        saveHastalar(list); toast('Hasta güncellendi.');
-        listeyiCizHastalar();
-      } else {
-        const id = genHastaId();
-        list.push({ id, ad, pin }); saveHastalar(list);
-        toast('Hasta oluşturuldu.');
-        hastaGir(id, { pinAtlandi: true });
+      if (aktifEkran === 'ekran-pin') {
+        gosterEkran('ekran-hastalar');
+        return;
       }
-      $('#yeni-kutu').classList.add('hidden');
-    });
-    document.getElementById('pin-gir')?.addEventListener('click', pinKont);
-    document.getElementById('pin-in')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); pinKont(); } });
-    document.getElementById('pin-geri')?.addEventListener('click', () => { $('#pin-kutu').classList.add('hidden'); });
-
-    // App header
-    document.getElementById('h-cip')?.addEventListener('click', () => { appGizle(); listeyiCizHastalar(); });
-    document.getElementById('notif-btn')?.addEventListener('click', izinIste);
-    document.getElementById('ayar-btn')?.addEventListener('click', () => {
-      loadAyarSec();
-      const p = $('#panel-ayar'); p.classList.remove('hidden'); document.body.classList.add('no-scroll');
-    });
-
-    // Settings
-    document.getElementById('ayar-kapa')?.addEventListener('click', () => {
-      $('#panel-ayar').classList.add('hidden'); document.body.classList.remove('no-scroll'); appGoster();
-    });
-    document.getElementById('btn-summary-close')?.addEventListener('click', () => {
-      $('#modal-summary').classList.add('hidden'); $('#modal-summary').classList.remove('flex');
-    });
-    document.getElementById('set-onerak')?.addEventListener('change', (e) => { ayarKaydet('onerakDk', +e.target.value); notiPlanla(); });
-    document.getElementById('set-ertele')?.addEventListener('change', (e) => ayarKaydet('erteleDk', +e.target.value));
-
-    // Add medication
-    const countDisplay = document.getElementById('count-display');
-    const timeInputs = document.getElementById('time-inputs');
-    function saatiOlustur(n, seed) {
-      const cur = Array.from(document.querySelectorAll('.dose-time')).map((i) => i.value);
-      ilacKaz = n; countDisplay.textContent = n; timeInputs.innerHTML = '';
-      const VARSAYILAN = ['09:00', '14:00', '20:00', '08:00', '12:00', '18:00', '21:00', '07:00'];
-      for (let i = 0; i < n; i++) {
-        const row = document.createElement('label');
-        row.className = 'flex items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4';
-        const v = (seed && seed[i] != null) ? seed[i] : (i < cur.length && cur[i]) ? cur[i] : VARSAYILAN[i % VARSAYILAN.length];
-        row.innerHTML = `<span class="shrink-0 font-semibold text-stone-600">${i + 1}. doz</span><input type="time" value="${v}" class="dose-time w-full bg-transparent text-right text-lg font-semibold text-stone-800 outline-none" />`;
-        timeInputs.appendChild(row);
+      if (aktifEkran === 'ekran-hasta') {
+        gosterEkran('ekran-hastalar');
+        return;
       }
-    }
-
-    document.getElementById('btn-minus')?.addEventListener('click', () => saatiOlustur(Math.max(1, ilacKaz - 1)));
-    document.getElementById('btn-plus2')?.addEventListener('click', () => saatiOlustur(Math.min(8, ilacKaz + 1)));
-
-    document.getElementById('btn-add')?.addEventListener('click', () => {
-      editingId = null; document.getElementById('med-form').reset(); document.getElementById('panel-title').textContent = 'Yeni İlaç';
-      document.getElementById('panel-desc').textContent = 'İlaç bilginizi girin.'; document.getElementById('save-label').textContent = 'Kaydet';
-      saatiOlustur(1); $('#panel-add').classList.remove('hidden'); document.body.classList.add('no-scroll');
-      setTimeout(() => $('#ilac-ad')?.focus({ preventScroll: true }), 60);
+      App.exitApp();
     });
-    document.getElementById('btn-cancel')?.addEventListener('click', () => { $('#panel-add').classList.add('hidden'); document.body.classList.remove('no-scroll'); });
-    document.getElementById('btn-save')?.addEventListener('click', (e) => { e.preventDefault();
-      const ad = $('#ilac-ad').value.trim();
-      const doz = $('#ilac-doz').value.trim();
-      const times = Array.from(document.querySelectorAll('.dose-time')).map((i) => i.value).filter(Boolean);
-      if (!ad) { $('#ilac-ad').focus(); toast('Lütfen ilaç adını girin.'); return; }
-      if (times.length < ilacKaz) { toast('Tüm alınma saatlerini doldurun.'); return; }
-      if (editingId) { ilacGuncelle(editingId, { ad, doz, times }); toast('İlaç güncellendi.'); }
-      else { ilacKaydet({ ad, doz, times }); toast('İlaç eklendi.'); }
-      $('#panel-add').classList.add('hidden'); document.body.classList.remove('no-scroll');
-      listeyiCiz();
-      notiPlanla();
+    App.addListener('appStateChange', (durum) => {
+      if (durum.isActive) {
+        aktifVerileriTazele();
+        ilacKartlariniCiz();
+        alarmKontrolu();
+        nativeDozBildirimleriniKur();
+      }
     });
-    document.getElementById('med-form')?.addEventListener('submit', (e) => { e.preventDefault(); document.getElementById('btn-save').click(); });
+  } catch (e) {
+    console.warn('Native geri tuşu kurulamadı', e);
+  }
+}
 
-    window.addEventListener('pointerdown', () => getAudioCtx(), { once: true });
-    window.addEventListener('keydown', () => getAudioCtx(), { once: true });
+/* ============ OLAYLAR ============ */
+function olaylariBagla() {
+  byId('btn-hasta-ekle').addEventListener('click', () => hastaFormunuAc(null));
+  byId('btn-hasta-form-kaydet').addEventListener('click', hastaFormKaydet);
+  byId('btn-hasta-geri').addEventListener('click', () => gosterEkran('ekran-hastalar'));
+  byId('btn-pin-geri').addEventListener('click', () => gosterEkran('ekran-hastalar'));
+  byId('btn-ilac-ekle').addEventListener('click', () => ilacFormunuAc(null));
+  byId('btn-ilac-form-kaydet').addEventListener('click', ilacFormKaydet);
+  byId('btn-saat-ekle').addEventListener('click', saatEkle);
+  byId('btn-ayarlar').addEventListener('click', ayarlarPaneliniAc);
+  byId('btn-ayar-kaydet').addEventListener('click', ayarlariKaydet);
+  byId('btn-senkronize').addEventListener('click', () => { senkronizeEt().catch(() => toast('Senkronizasyon başarısız')); });
+  byId('btn-alarm-alindi').addEventListener('click', alarmAlindiTıkla);
+  byId('btn-alarm-ertele').addEventListener('click', alarmErteleTıkla);
+  byId('btn-ozet-kapat').addEventListener('click', () => modalKapat('modal-ozet'));
+  byId('btn-onay-iptal').addEventListener('click', () => { modalKapat('modal-onay'); onayCallback = null; });
+  byId('btn-onay-evvet').addEventListener('click', onayEvvet);
+  byId('onerak-range').addEventListener('input', () => { byId('onerak-deger').textContent = byId('onerak-range').value + ' dk'; });
 
-    setupNative();
-    zamanKontroluBaslat();
+  document.querySelectorAll('.modal-kapat').forEach((b) => b.addEventListener('click', () => {
+    const modal = b.closest('.modal');
+    if (modal) modalKapat(modal.id);
+  }));
+
+  document.querySelectorAll('.pin-tus').forEach((b) => b.addEventListener('click', () => pinTusBas(b.textContent.trim())));
+  document.querySelector('.pin-tus-sil').addEventListener('click', () => pinTusBas('sil'));
+  byId('pin-input').addEventListener('input', () => {
+    byId('pin-hata').classList.add('hidden');
+    if (pinHasta && byId('pin-input').value.length === String(pinHasta.pin).length) pinDogrula();
   });
 
-  // --------------------------------------------------
-  // PWA Service Worker
-  // --------------------------------------------------
+  byId('ilac-kartlari').addEventListener('click', (e) => {
+    const btn = e.target.closest('.btn-alindi');
+    if (!btn) return;
+    ilacAlindi(aktifHastaId, btn.dataset.ilacId, btn.dataset.saat, Date.now());
+  });
+
+  document.addEventListener('click', (e) => {
+    const hastaDuzenle = e.target.closest('[data-hasta-duzenle]');
+    const hastaSilBtn = e.target.closest('[data-hasta-sil]');
+    const ilacDuzenle = e.target.closest('[data-ilac-duzenle]');
+    const ilacSilBtn = e.target.closest('[data-ilac-sil]');
+    if (hastaDuzenle) {
+      const h = hastalar.find((x) => x.id === hastaDuzenle.dataset.hastaDuzenle);
+      if (h) hastaFormunuAc(h);
+    } else if (hastaSilBtn) {
+      const h = hastalar.find((x) => x.id === hastaSilBtn.dataset.hastaSil);
+      if (h) onaySor('Hastayı Sil', h.ad + ' hastası ve tüm verileri silinecek. Bu işlem geri alınamaz.', () => hastaSil(h.id));
+    } else if (ilacDuzenle) {
+      const ilac = aktifIlaclar.find((m) => m.id === ilacDuzenle.dataset.ilacDuzenle);
+      if (ilac) ilacFormunuAc(ilac);
+    } else if (ilacSilBtn) {
+      const ilac = aktifIlaclar.find((m) => m.id === ilacSilBtn.dataset.ilacSil);
+      if (ilac) onaySor('İlaç Sil', ilac.ad + ' ilacı silinecek.', () => ilacSil(ilac.id));
+    }
+  });
+
+  document.addEventListener('pointerdown', sesKilidiniAc);
+  document.addEventListener('keydown', sesKilidiniAc);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') tümModallariKapat();
+  });
+
+  if (isNative) {
+    try {
+      LocalNotifications.addListener('localNotificationActionPerformed', (evt) => {
+        const not = evt.notification;
+        if (not && not.actionTypeId === 'alindi' && not.extra) {
+          ilacAlindi(not.extra.hastaId, not.extra.ilacId, not.extra.saat, Date.now());
+        }
+      });
+    } catch (e) { console.warn('Bildirim aksiyon dinleyicisi kurulamadı', e); }
+  }
+}
+
+/* ============ AÇILIŞ ============ */
+function serviceWorkerKaydet() {
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service Worker kaydedilemedi:', err));
-    });
+    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('Service worker kaydedilemedi', e));
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  hastaListesiniCiz();
+  gosterEkran('ekran-hastalar');
+  olaylariBagla();
+  nativeGeriTusunuKur();
+  serviceWorkerKaydet();
+
+  if (navigator.onLine) {
+    senkronizeEt().catch((e) => console.warn('Senkron başarısız, yerel veri kullanılıyor', e));
+  } else {
+    console.warn('Çevrimdışı mod: yerel veri kullanılıyor');
   }
 
-  let ilacKaz = 1;
-  let editingId = null;
-})();
+  setInterval(() => {
+    if (sonTarihKey !== bugunKey()) {
+      sonTarihKey = bugunKey();
+      aktifVerileriTazele();
+      ilacKartlariniCiz();
+      if (isNative) nativeDozBildirimleriniKur();
+    }
+    alarmKontrolu();
+  }, 15000);
 
-// ==========================================================
-// Helper functions (moved outside IIFE for global access)
-// ==========================================================
+  if (isNative) {
+    nativeIzinleriAyarla();
+  } else if ('Notification' in window && Notification.permission === 'default') {
+    document.addEventListener('pointerdown', function once() {
+      Notification.requestPermission().catch(() => {});
+      document.removeEventListener('pointerdown', once);
+    });
+  }
+});

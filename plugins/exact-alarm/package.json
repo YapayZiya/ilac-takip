@@ -1,18 +1,12 @@
 {
   "name": "@ilac/exact-alarm",
   "version": "1.0.0",
-  "description": "Android 12+ SCHEDULE_EXACT_ALARM kontrol et ve iste (ACTION_REQUEST_SCHEDULE_EXACT_ALARM).",
-  "main": "dist/plugin.cjs.js",
-  "module": "dist/esm/index.js",
-  "types": "dist/index.d.ts",
-  "files": [
-    "android/src/main/",
-    "android/build.gradle",
-    "dist/"
-  ],
+  "description": "Capacitor plugin: Android 12+ tam zamanlı alarm (SCHEDULE_EXACT_ALARM) izni ve pil optimizasyonu muafiyeti",
+  "main": "index.js",
+  "types": "index.d.ts",
   "license": "MIT",
   "peerDependencies": {
-    "@capacitor/core": "^6.0.0"
+    "@capacitor/core": "^6.0.0 || ^7.0.0 || ^8.0.0"
   },
   "capacitor": {
     "android": {
