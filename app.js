@@ -159,15 +159,21 @@ function hastaListesiniCiz() {
     const ilacSayisi = yukle(hastaIlacKey(h.id), []).length;
     const li = document.createElement('li');
     li.innerHTML =
-      '<button data-hasta-id="' + h.id + '" class="hasta-karti flex w-full items-center gap-3 rounded-xl bg-white p-4 text-left shadow-sm transition hover:shadow-md active:scale-[0.99]">' +
+      '<div class="hasta-karti flex w-full items-center gap-3 rounded-xl bg-white p-4 text-left shadow-sm transition hover:shadow-md">' +
+      '<button data-hasta-id="' + h.id + '" class="flex min-w-0 flex-1 items-center gap-3 text-left active:scale-[0.99] transition">' +
       '<div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand-100 text-lg font-bold text-brand-700">' + escapeHtml((h.ad || '?').charAt(0).toUpperCase()) + '</div>' +
       '<div class="min-w-0 flex-1">' +
       '<p class="truncate font-semibold text-gray-800">' + escapeHtml(h.ad) + '</p>' +
       '<p class="text-xs text-gray-400">' + ilacSayisi + ' ilaç' + (h.pin ? ' · 🔒 PIN korumalı' : '') + '</p>' +
       '</div>' +
       '<span class="text-gray-300">›</span>' +
-      '</button>';
-    li.querySelector('.hasta-karti').addEventListener('click', () => hastaKartiTıkla(h));
+      '</button>' +
+      '<div class="flex shrink-0 items-center gap-1 text-sm">' +
+      '<button data-hasta-duzenle="' + h.id + '" type="button" class="rounded-lg px-2 py-2 transition hover:bg-brand-50" title="Düzenle">✏️</button>' +
+      '<button data-hasta-sil="' + h.id + '" type="button" class="rounded-lg px-2 py-2 transition hover:bg-red-50" title="Sil">🗑️</button>' +
+      '</div>' +
+      '</div>';
+    li.querySelector('[data-hasta-id]').addEventListener('click', () => hastaKartiTıkla(h));
     ul.appendChild(li);
   });
 }
@@ -305,6 +311,10 @@ function ilacKartlariniCiz() {
         ? '<span class="text-xs font-medium text-green-600">✓ ' + saatBiçim(alindiT) + '</span>'
         : '<button data-alindi="' + doz.key + '" data-ilac-id="' + doz.ilac.id + '" data-saat="' + doz.saat + '" class="btn-alindi rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-700 active:scale-95">Alındı ✓</button>') +
       '</div>' +
+      '<div class="mt-2 flex items-center justify-end gap-1 border-t border-gray-100 pt-2 text-xs">' +
+      '<button data-ilac-duzenle="' + doz.ilac.id + '" type="button" class="rounded-lg px-2.5 py-1.5 font-medium text-gray-500 transition hover:bg-brand-50 hover:text-brand-700">✏️ Düzenle</button>' +
+      '<button data-ilac-sil="' + doz.ilac.id + '" type="button" class="rounded-lg px-2.5 py-1.5 font-medium text-gray-500 transition hover:bg-red-50 hover:text-red-600">🗑️ Sil</button>' +
+      '</div>' +
       '</div>';
     kap.appendChild(kart);
   });
@@ -406,7 +416,10 @@ function ilacAlindi(hastaId, ilacId, saat, zamani) {
     gunSonuKontrol();
   }
   nativeDozBildirimleriniKur(hastaId);
-  firebasePushHasta(hastaId);
+  firebasePushHasta(hastaId).then((ok) => {
+    if (ok) toast('Sunucuya senkronize edildi ✓');
+    else toast('Çevrimdışı — değişiklik cihazda tutuluyor');
+  });
 }
 
 /* ============ SES + TARAYICI BİLDİRİMİ ============ */
@@ -593,7 +606,10 @@ function ilacFormKaydet() {
   duzenlenenIlac = null;
   ilacKartlariniCiz();
   nativeDozBildirimleriniKur(aktifHastaId);
-  firebasePushHasta(aktifHastaId);
+  firebasePushHasta(aktifHastaId).then((ok) => {
+    if (ok) toast('Değişiklikler sunucuya kaydedildi ✓');
+    else toast('Çevrimdışı — değişiklik cihazda tutuluyor');
+  });
 }
 function ilacSil(ilacId) {
   aktifIlaclar = aktifIlaclar.filter((m) => m.id !== ilacId);
@@ -605,7 +621,9 @@ function ilacSil(ilacId) {
   alarmKuyrugu = alarmKuyrugu.filter((e) => e.ilac.id !== ilacId);
   nativeDozBildirimleriniKur(aktifHastaId);
   ilacKartlariniCiz();
-  firebasePushHasta(aktifHastaId);
+  firebasePushHasta(aktifHastaId).then((ok) => {
+    if (ok) toast('Değişiklikler sunucuya kaydedildi ✓');
+  });
 }
 
 /* ============ AYARLAR ============ */
@@ -790,11 +808,11 @@ async function firebasePut(path, data, timeoutMs) {
     clearTimeout(timer);
   }
 }
-function firebasePushHasta(hastaId) {
+async function firebasePushHasta(hastaId) {
   const hasta = hastalar.find((h) => h.id === hastaId);
-  if (!hasta) return;
+  if (!hasta) return false;
   const durum = hastaDurum(hastaId);
-  firebasePut('/patients/' + hastaId, { ad: hasta.ad, pin: hasta.pin || '', meds: durum.ilaclar, done: durum.alindi });
+  return await firebasePut('/patients/' + hastaId, { ad: hasta.ad, pin: hasta.pin || '', meds: durum.ilaclar, done: durum.alindi });
 }
 function firebaseRegistryPush() {
   firebasePut('/patients/__registry__', { ids: hastalar.map((h) => h.id) });
