@@ -11,8 +11,11 @@ const API_KEY = "AIzaSyCvwNDuE0QFD6K4OcUhJ-688_-MD9k0Jc8";
 // Capacitor is only available in Capacitor runtime, not in PWA
 let isNative = false;
 try {
-  // eslint-disable-next-line no-undef
-  if (typeof Capacitor !== 'undefined') isNative = Capacitor.isNativePlatform();
+  // Check for Capacitor via global or window
+  const capGlob = typeof window !== 'undefined' ? window.Capacitor : null;
+  if (capGlob && typeof capGlob.isNativePlatform === 'function') {
+    isNative = capGlob.isNativePlatform();
+  }
 } catch { isNative = false; }
 
 (() => {
