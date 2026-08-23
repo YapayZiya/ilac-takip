@@ -663,12 +663,10 @@ import { ExactAlarm } from '@ilac/exact-alarm';
       listeyiCizHastalar();
     })();
 
-    // --------------------------------------------------
-  // Patient selection events
-  // --------------------------------------------------
-  document.getElementById('h-yeni')?.addEventListener('click', () => { yeniHastaId = null; $('#h-ad').value = ''; $('#h-pin').value = ''; $('#h-yeni-title').textContent = 'Yeni Hasta'; $('#h-kaydet').textContent = 'Kaydet ve Gir'; $('#hasta-form').reset(); $('#yeni-kutu').classList.remove('hidden'); setTimeout(() => $('#h-ad')?.focus(), 60); });
-  document.getElementById('h-iptal')?.addEventListener('click', () => { $('#yeni-kutu').classList.add('hidden'); });
-  document.getElementById('h-geri')?.addEventListener('click', () => { appGizle(); listeyiCizHastalar(); });
+    // Patient selection events
+    document.getElementById('h-yeni')?.addEventListener('click', () => { yeniHastaId = null; $('#h-ad').value = ''; $('#h-pin').value = ''; $('#h-yeni-title').textContent = 'Yeni Hasta'; $('#h-kaydet').textContent = 'Kaydet ve Gir'; $('#hasta-form').reset(); $('#yeni-kutu').classList.remove('hidden'); setTimeout(() => $('#h-ad')?.focus(), 60); });
+    document.getElementById('h-iptal')?.addEventListener('click', () => { $('#yeni-kutu').classList.add('hidden'); });
+    document.getElementById('h-geri')?.addEventListener('click', () => { appGizle(); listeyiCizHastalar(); });
     document.getElementById('hasta-form')?.addEventListener('submit', (e) => { e.preventDefault();
       const ad = $('#h-ad').value.trim();
       let pin = $('#h-pin').value.replace(/\D/g, '').slice(0, 6);
