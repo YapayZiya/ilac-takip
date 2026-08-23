@@ -1074,7 +1074,7 @@ function olaylariBagla() {
     try {
       LocalNotifications.addListener('localNotificationActionPerformed', (evt) => {
         const not = evt.notification;
-        if (not && not.actionTypeId === 'alindi' && not.extra) {
+        if (evt.actionId === 'alindi' && not && not.extra) {
           ilacAlindi(not.extra.hastaId, not.extra.ilacId, not.extra.saat, Date.now());
         }
       });

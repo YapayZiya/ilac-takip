@@ -225,6 +225,11 @@ butonları yalnızca `ayarlar.duzenButonlari === true` ise render edilir.
   vermiyor; hasta keşfi kayıt defteri (`__registry__`) ile yapılır. Mevcut verilerin defterde
   görünmesi için kuralların genişletilmesi veya verinin olduğu cihazda uygulamanın bir kez
   açılıp defteri oluşturması gerekir.
+- **Dozlar kullanıcı dokunmadan "Alındı" oluyor + gün sonu raporu çıkıyor (native)** →
+  `localNotificationActionPerformed` dinleyicisinde `not.actionTypeId` (bildirim kurulurken
+  sabitlenen değer) değil **`evt.actionId`** kontrol edilmeli. `evt.actionId === 'tap'` bir
+  bildirimin gövdesine dokunuştur; yalnızca `evt.actionId === 'alindi'` ise (aksiyon butonu
+  "Alındı ✓") doz işaretlenmelidir.
 
 ## Doğrulama
 
