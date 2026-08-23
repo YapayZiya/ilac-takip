@@ -92,7 +92,7 @@ ilac-takip/
 ├── src/
 │   └── tailwind-input.css    # Tailwind v4 giriş dosyası (@theme + @source)
 ├── www/                      # webDir — Capacitor ve statik sunucu buradan servis eder
-│   ├── index.html            # 3 ekran + 6 modal (hasta, pin, hasta paneli)
+│   ├── index.html            # 3 ekran + 7 modal (hasta, pin, hasta paneli, raporlar)
 │   ├── style.css             # Özel/animasyon stilleri (tailwind.css'ten SONRA yüklenir)
 │   ├── manifest.json         # PWA manifest (Türkçe)
 │   ├── sw.js                 # Service worker (APP_SHELL önbelleği)
@@ -121,12 +121,18 @@ ilac_takip:hastalar           → [{ id, ad, pin }]
 ilac_takip:aktif              → hasta id (string)
 ilac_takip:ilac:{hastaId}     → [{ id, ad, doz, times: ["09:00","20:00"], updatedAt }]
 ilac_takip:alindi:{hastaId}   → { "{ilacId}|{YYYY-MM-DD}|{saat}": timestamp }
-ilac_takip:ayar:{hastaId}     → { onerakDk: 15, erteleDk: 5 }
+ilac_takip:ayar:{hastaId}     → { onerakDk: 15, erteleDk: 5, duzenButonlari: false }
+ilac_takip:rapor:{hastaId}    → { "YYYY-MM-DD": { planlanan, alinan, geciken, detay: [{ilac, saat, alindi, alindiSaat}] } } (son 7 gün)
 ilac_takip:noti               → { [bildirimId]: "{ilacId}|{tarih}|{saat}" } (native eşleme)
 ilac_takip:ozet:{hastaId}     → son gösterilen özet tarihi
 ilac_takip:exact-asked        → tam zamanlı alarm izni istendi mi (flag)
 ilac_takip:battery-asked      → pil optimizasyonu muafiyeti istendi mi (flag)
 ```
+
+`duzenButonlari` (varsayılan `false`): ilaç kartlarında Düzenle/Sil butonlarının gösterilip
+gösterilmeyeceğini kontrol eder — Ayarlar panelindeki checkbox ile değiştirilir.
+`ilac_takip:rapor:{hastaId}`: gün sonu raporları; kayıt sırasında 7 günden eski kayıtlar
+silinir (tarih anahtarları `YYYY-MM-DD` string karşılaştırmasıyla kesilir).
 
 ### Firebase Realtime Database
 
@@ -151,6 +157,21 @@ patients/
 3. Olay bağlama, native geri tuşu, service worker kaydı
 4. `navigator.onLine` ise `senkronizeEt()` arka planda (timeout'lu, catch'li)
 
+### Hasta paneli açılışı
+1. `hastaPaneliAc(hastaId)` — hasta verilerini yükle, ekranı göster
+2. `ilacKartlariniCiz()` — günün dozlarını durum bazlı kartlar halinde çiz
+3. `kalanIlacaKaydir()` — bekleyen/gecikmiş ilk karta otomatik kaydır
+4. `alarmKontrolu()` — anlık alarm kontrolü
+5. `gunSonuKontrol()` — tüm dozlar alındıysa gün sonu özetini göster
+
+### Gün sonu raporları
+- `gunSonuKontrol()`: son doz alındığında tetiklenir; `gunSonuRaporuKaydet()` ile
+  saklanır, `modal-ozet` gösterilir
+- `gunSonuRaporuKaydet()`: `ilac_takip:rapor:{hastaId}` altına günün raporunu yazar
+  (planlanan, alınan, geciken, detay listesi); 7 günden eski raporları temizler
+- `raporlariGoster()`: hasta başlığındaki 📊 butonu ile son 7 günün raporlarını
+  `modal-raporlar`'da listeler
+
 ### Senkronizasyon (senkronizeEt)
 Kural: Firebase kuralları yalnızca `patients/$patientId` altında okuma/yazmaya izin verir;
 üst düzey `/patients.json` okuması 401 döner. Bu yüzden:
@@ -161,6 +182,8 @@ Kural: Firebase kuralları yalnızca `patients/$patientId` altında okuma/yazmay
 5. Değişiklik varsa kaydet, `firebaseRegistryPush()`, yeniden çiz
 
 Her CRUD sonrası `firebasePushHasta(hastaId)` → `PUT /patients/{hastaId}` (meds + done dahil).
+Fonksiyon `async`'tir ve `firebasePut` sonucunu döndürür; çağıranlar (alındı işaretleme, ilaç
+kaydetme/silme) başarı/başarısızlığa göre toast gösterir.
 `firebaseRegistryPush()` → `PUT /patients/__registry__` = `{ ids: [...] }`.
 Önerilen kurallar (tam liste okuması için): `{"patients": {".read": true, "$patientId": {".write": true}}}`.
 
@@ -184,6 +207,10 @@ Her CRUD sonrası `firebasePushHasta(hastaId)` → `PUT /patients/{hastaId}` (me
 `hastalar` (global dizi) + aktif hasta/ilaçlar/alındı/ayarlar bellek değişkenlerinde tutulur,
 her değişiklikte localStorage'a yazılır. Ekran geçişleri `gosterEkran(id)`; modallar
 `modalAc/ModalKapat` (classList hidden ekle/kaldır).
+
+İlaç kartları `data-durum` attribute'u taşır (`alindi`, `bekliyor`, `yakin`, `gecikti`, `gecti`);
+`kalanIlacaKaydir()` bunu kullanarak bekleyen ilk karta kayar. Kart altındaki Düzenle/Sil
+butonları yalnızca `ayarlar.duzenButonlari === true` ise render edilir.
 
 ## Hata Kılavuzu (daha önce yaşandı)
 
