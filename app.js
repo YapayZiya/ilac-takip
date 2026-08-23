@@ -4,18 +4,17 @@
    Offline-First: Firebase'den veya LocalStorage'dan veri çeker
    =========================================================== */
 
-import { Capacitor } from '@capacitor/core';
-import { LocalNotifications } from '@capacitor/local-notifications';
-import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
-import { Share } from '@capacitor/share';
-import { App } from '@capacitor/app';
-import { ExactAlarm } from '@ilac/exact-alarm';
 import { DB_URL, API_KEY } from './firebase-config.js';
+
+// Capacitor is only available in Capacitor runtime, not in PWA
+let isNative = false;
+try {
+  // eslint-disable-next-line no-undef
+  if (typeof Capacitor !== 'undefined') isNative = Capacitor.isNativePlatform();
+} catch { isNative = false; }
 
 (() => {
   'use strict';
-
-  const isNative = Capacitor.isNativePlatform();
 
   const $  = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
