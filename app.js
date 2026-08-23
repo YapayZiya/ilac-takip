@@ -4,7 +4,9 @@
    Offline-First: Firebase'den veya LocalStorage'dan veri çeker
    =========================================================== */
 
-import { DB_URL, API_KEY } from './firebase-config.js';
+// Firebase configuration - hardcoded
+const DB_URL = "https://ilac-takip-da59e-default-rtdb.europe-west1.firebasedatabase.app";
+const API_KEY = "AIzaSyCvwNDuE0QFD6K4OcUhJ-688_-MD9k0Jc8";
 
 // Capacitor is only available in Capacitor runtime, not in PWA
 let isNative = false;
@@ -82,10 +84,17 @@ try {
     if (!navigator.onLine) return null;
     try {
       const url = `${DB_URL}${path}.json?auth=${API_KEY}`;
-      const res = await fetch(url);
-      return res.ok ? res.json() : null;
+      console.log('Fetching:', url);
+      const res = await fetch(url, { method: 'GET', mode: 'cors' });
+      console.log('Response:', res.status, res.ok);
+      if (!res.ok) {
+        console.warn('Firebase response not ok:', res.status);
+        return null;
+      }
+      const data = await res.json();
+      return data;
     } catch (e) {
-      console.warn('Firebase fetch hatası:', e);
+      console.error('Firebase fetch hatası:', e);
       return null;
     }
   }
@@ -635,21 +644,32 @@ try {
   // DOMContentLoaded
   // --------------------------------------------------
   document.addEventListener('DOMContentLoaded', () => {
+    console.log('DOMContentLoaded fired');
     $('#today-date').textContent = bugunTarihTR();
 
     // Ensure patient screen is visible
     appGizle();
+    console.log('Patient screen shown');
 
     // Load patients from Firebase or LocalStorage
     (async () => {
-      if (navigator.onLine) {
-        await loadHastalarFromFirebase();
+      try {
+        if (navigator.onLine) {
+          console.log('Loading from Firebase...');
+          await loadHastalarFromFirebase();
+          console.log('Load complete');
+        }
+        listeyiCizHastalar();
+        console.log('List rendered');
+      } catch (e) {
+        console.error('Load error:', e);
+        listeyiCizHastalar();
       }
-      listeyiCizHastalar();
     })();
 
     // Patient selection events
-    document.getElementById('h-yeni')?.addEventListener('click', () => { yeniHastaId = null; $('#h-ad').value = ''; $('#h-pin').value = ''; $('#h-yeni-title').textContent = 'Yeni Hasta'; $('#h-kaydet').textContent = 'Kaydet ve Gir'; $('#hasta-form').reset(); $('#yeni-kutu').classList.remove('hidden'); setTimeout(() => $('#h-ad')?.focus(), 60); });
+    console.log('Attaching events...');
+    document.getElementById('h-yeni')?.addEventListener('click', () => { console.log('Yeni Hasta clicked'); yeniHastaId = null; $('#h-ad').value = ''; $('#h-pin').value = ''; $('#h-yeni-title').textContent = 'Yeni Hasta'; $('#h-kaydet').textContent = 'Kaydet ve Gir'; $('#hasta-form').reset(); $('#yeni-kutu').classList.remove('hidden'); setTimeout(() => $('#h-ad')?.focus(), 60); });
     document.getElementById('h-iptal')?.addEventListener('click', () => { $('#yeni-kutu').classList.add('hidden'); });
     document.getElementById('h-geri')?.addEventListener('click', () => { appGizle(); listeyiCizHastalar(); });
     document.getElementById('hasta-form')?.addEventListener('submit', (e) => { e.preventDefault();
