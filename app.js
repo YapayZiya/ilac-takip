@@ -637,6 +637,12 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     $('#app').classList.remove('hidden'); $('#app').classList.add('flex');
   }
 
+  function appGizle() {
+    document.body.classList.remove('no-scroll');
+    $('#screen-hasta').classList.remove('hidden');
+    $('#app').classList.add('hidden');
+  }
+
   function loadAyarSec() { const a = getAyar(); $('#set-onerak').value = String(a.onerakDk); $('#set-ertele').value = String(a.erteleDk); }
   function ayarKaydet(k, v) { const a = getAyar(); a[k] = v; saveAyar(aktifPid, a); toast('Ayarlar kaydedildi.'); }
 
@@ -646,16 +652,23 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   document.addEventListener('DOMContentLoaded', () => {
     $('#today-date').textContent = bugunTarihTR();
 
-    // Load patients from Firebase or LocalStorage
-    if (navigator.onLine) {
-      loadHastalarFromFirebase();
-    }
-    listeyiCizHastalar();
+    // Ensure patient screen is visible
+    appGizle();
 
-    // Patient selection events
-    document.getElementById('h-yeni')?.addEventListener('click', () => { yeniHastaId = null; $('#h-ad').value = ''; $('#h-pin').value = ''; $('#h-yeni-title').textContent = 'Yeni Hasta'; $('#h-kaydet').textContent = 'Kaydet ve Gir'; $('#hasta-form').reset(); $('#yeni-kutu').classList.remove('hidden'); setTimeout(() => $('#h-ad')?.focus(), 60); });
-    document.getElementById('h-iptal')?.addEventListener('click', () => { $('#yeni-kutu').classList.add('hidden'); });
-    document.getElementById('h-geri')?.addEventListener('click', () => { appGizle(); listeyiCizHastalar(); });
+    // Load patients from Firebase or LocalStorage
+    (async () => {
+      if (navigator.onLine) {
+        await loadHastalarFromFirebase();
+      }
+      listeyiCizHastalar();
+    })();
+
+    // --------------------------------------------------
+  // Patient selection events
+  // --------------------------------------------------
+  document.getElementById('h-yeni')?.addEventListener('click', () => { yeniHastaId = null; $('#h-ad').value = ''; $('#h-pin').value = ''; $('#h-yeni-title').textContent = 'Yeni Hasta'; $('#h-kaydet').textContent = 'Kaydet ve Gir'; $('#hasta-form').reset(); $('#yeni-kutu').classList.remove('hidden'); setTimeout(() => $('#h-ad')?.focus(), 60); });
+  document.getElementById('h-iptal')?.addEventListener('click', () => { $('#yeni-kutu').classList.add('hidden'); });
+  document.getElementById('h-geri')?.addEventListener('click', () => { appGizle(); listeyiCizHastalar(); });
     document.getElementById('hasta-form')?.addEventListener('submit', (e) => { e.preventDefault();
       const ad = $('#h-ad').value.trim();
       let pin = $('#h-pin').value.replace(/\D/g, '').slice(0, 6);

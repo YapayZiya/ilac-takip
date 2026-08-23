@@ -48,17 +48,18 @@
 - [x] Uzun listelerde bekleyen ilaçlara otomatik kaydırma
 - [x] Gün sonu özet raporu (alındı / atlanan ilaçlar)
 
-## Faz 8 — Hata Düzeltmeleri ve Yeni Özellikler
+## Faz 8 — Firebase Senkronizasyonu ve Offline-First Mimari
 
 ### Düzeltmeler:
 - [x] **Problem 1 çözüldü**: İlaç alındıysa ilgili native bildirimleri iptal ediliyor. Alarm, ilaç alındı olarak işaretlendikten sonra çalışmıyor.
 - [x] **Problem 2 çözüldü**: Gün sonu özet raporu, ilaçlar alındıysa veya saati geçtiğinde gösteriliyor. Atlanan ilaçları da içerir.
 
 ### Yeni Özellikler:
-- [x] **Firebase Realtime Database Senkronizasyonu**: Aile üyeleri uygulamayı açtıkça ilaç durumlarını gerçek zamanlı görüyor
-- [x] **REST API tabanlı senkronizasyon**: Firebase SDK yerine, daha hafif REST API kullanımı
-- [x] **Firebase yapılandırma UI**: Ayarlar paneline Firebase yapılandırma seçeneği eklendi
-- [x] **30 saniyelik polling**: Gerçek zamanlı senkronizasyon için periyodik veri senkronizasyonu
+- [x] **Offline-First Mimari**: LocalStorage öncelikli, Firebase senkronizasyonu arka planda
+- [x] **Firebase Realtime Database Senkronizasyonu**: `fetchFromFirebase()` ile veri çek, `syncToFirebase()` ile push et
+- [x] **Firebase yapılandırma sabitlendirildi**: `firebase-config.js` dosyasında sabit API Key ve URL
+- [x] **API Key**: `AIzaSyCvwNDuE0QFD6K4OcUhJ-688_-MD9k0Jc8`
+- [x] **Database URL**: `https://ilac-takip-da59e-default-rtdb.europe-west1.firebasedatabase.app`
 
 ## Açık Sorunlar
 - [ ] OEM bateri optimizasyonu (Xiaomi, Huawei vb.) engellemeleri
@@ -71,6 +72,10 @@
 - Ücretsiz tier: 100 GB veritabanı, 10k okuma/s, 1k yazma/s
 - Gerçek zamanlı senkronizasyon için ideal
 - Mobil uygulama entegrasyonu kolaylığı
+
+### Firebase Yapılandırması
+- API anahtarları `firebase-config.js` dosyasında sabittir (**gizli değil**)
+- Veri yolu: `/patients/{hasta_id}/meds` ve `/patients/{hasta_id}/done`
 
 ### Alarm Mantığı Yeniden Düzenlendi
 `almIsaretle()` fonksiyonu, ilaç alındı işaretlendikten sonra:
