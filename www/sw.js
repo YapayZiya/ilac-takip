@@ -6,12 +6,11 @@ const CACHE = 'ilac-takip-v2';
 const APP_SHELL = [
   './',
   'index.html',
-  'app.js',
+  'app.bundle.js',
   'style.css',
   'manifest.json',
   'icons/icon-192.png',
   'icons/icon-512.png'
-  // Dış CDN varlıkları çevrimdışı için de önbelleğe alınır
 ];
 
 // Kurulum: uygulama kabuğunu önbelleğe al
@@ -40,7 +39,7 @@ self.addEventListener('fetch', (e) => {
       if (hit) return hit;
       return fetch(e.request).then((res) => {
         const url = new URL(e.request.url);
-        if (res.ok && (url.origin === self.location.origin || url.hostname === 'cdn.tailwindcss.com')) {
+        if (res.ok && url.origin === self.location.origin) {
           const clone = res.clone();
           caches.open(CACHE).then((c) => c.put(e.request, clone));
         }

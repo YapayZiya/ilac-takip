@@ -4,6 +4,12 @@
    Offline-First: Firebase'den veya LocalStorage'dan veri çeker
    =========================================================== */
 
+// Capacitor imports - only available in native runtime
+// In PWA these will be undefined, guarded by isNative check
+// import { LocalNotifications } from '@capacitor/local-notifications';
+// import { App } from '@capacitor/app';
+// import { ExactAlarm } from '@ilac/exact-alarm';
+
 // Firebase configuration - hardcoded
 const DB_URL = "https://ilac-takip-da59e-default-rtdb.europe-west1.firebasedatabase.app";
 const API_KEY = "AIzaSyCvwNDuE0QFD6K4OcUhJ-688_-MD9k0Jc8";
@@ -11,10 +17,9 @@ const API_KEY = "AIzaSyCvwNDuE0QFD6K4OcUhJ-688_-MD9k0Jc8";
 // Capacitor is only available in Capacitor runtime, not in PWA
 let isNative = false;
 try {
-  // Check for Capacitor via global or window
-  const capGlob = typeof window !== 'undefined' ? window.Capacitor : null;
-  if (capGlob && typeof capGlob.isNativePlatform === 'function') {
-    isNative = capGlob.isNativePlatform();
+  // Check for Capacitor via window global
+  if (typeof window !== 'undefined' && window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function') {
+    isNative = window.Capacitor.isNativePlatform();
   }
 } catch { isNative = false; }
 
@@ -83,12 +88,14 @@ try {
   // --------------------------------------------------
   // Firebase sync functions
   // --------------------------------------------------
-  async function fetchFromFirebase(path) {
+  async function fetchFromFirebase(path, timeoutMs = 6000) {
     if (!navigator.onLine) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const url = `${DB_URL}${path}.json?auth=${API_KEY}`;
       console.log('Fetching:', url);
-      const res = await fetch(url, { method: 'GET', mode: 'cors' });
+      const res = await fetch(url, { method: 'GET', mode: 'cors', signal: controller.signal });
       console.log('Response:', res.status, res.ok);
       if (!res.ok) {
         console.warn('Firebase response not ok:', res.status);
@@ -97,20 +104,26 @@ try {
       const data = await res.json();
       return data;
     } catch (e) {
-      console.error('Firebase fetch hatası:', e);
+      console.error('Firebase fetch hatası/timeout:', e);
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  async function pushToFirebase(path, data) {
+  async function pushToFirebase(path, data, timeoutMs = 6000) {
     if (!navigator.onLine) return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const url = `${DB_URL}${path}.json?auth=${API_KEY}`;
-      await fetch(url, { method: 'PUT', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } });
+      await fetch(url, { method: 'PUT', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' }, signal: controller.signal });
       return true;
     } catch (e) {
-      console.warn('Firebase push hatası:', e);
+      console.warn('Firebase push hatası/timeout:', e);
       return false;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -654,21 +667,23 @@ try {
     appGizle();
     console.log('Patient screen shown');
 
-    // Load patients from Firebase or LocalStorage
-    (async () => {
-      try {
-        if (navigator.onLine) {
+    // 1) ÖNCE yerel veriyle HEMEN çiz - kullanıcı asla boş/donuk ekran görmesin
+    listeyiCizHastalar();
+    console.log('List rendered (local)');
+
+    // 2) SONRA Firebase'i arka planda, zaman aşımlı şekilde dene
+    if (navigator.onLine) {
+      (async () => {
+        try {
           console.log('Loading from Firebase...');
           await loadHastalarFromFirebase();
-          console.log('Load complete');
+          listeyiCizHastalar(); // güncel veriyle yeniden çiz
+          console.log('List rendered (Firebase sync complete)');
+        } catch (e) {
+          console.error('Firebase sync failed, local data still showing:', e);
         }
-        listeyiCizHastalar();
-        console.log('List rendered');
-      } catch (e) {
-        console.error('Load error:', e);
-        listeyiCizHastalar();
-      }
-    })();
+      })();
+    }
 
     // Patient selection events
     console.log('Attaching events...');
