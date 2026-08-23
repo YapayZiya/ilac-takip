@@ -87,19 +87,88 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   let aktifPid = null;   // aktif hasta id'si
   let aktifHasta = null; // aktif hasta nesnesi
 
+  /* ================= FIREBASE SYNC ================= */
+  const FIREBASE_DB_URL = 'https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com';
+  let firebasePolling = null;
+
+  function firebaseSyncEnabled() { return !!localStorage.getItem('ilac_takip:firebaseconfig'); }
+
+  function getFirebaseConfig() {
+    const c = localStorage.getItem('ilac_takip:firebaseconfig');
+    return c ? JSON.parse(c) : null;
+  }
+
+  function saveFirebaseConfig(cfg) {
+    localStorage.setItem('ilac_takip:firebaseconfig', JSON.stringify(cfg));
+  }
+
+  async function syncToFirebaseRest(pid, data, type) {
+    const cfg = getFirebaseConfig();
+    if (!cfg || !data) return false;
+    try {
+      const url = `${cfg.dbUrl}/patients/${pid}/${type}.json?auth=${cfg.apiKey}`;
+      await fetch(url, { method: 'PUT', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } });
+      return true;
+    } catch (e) {
+      console.warn('Firebase sync hatası:', e);
+      return false;
+    }
+  }
+
+  async function pullFromFirebase(pid, type) {
+    const cfg = getFirebaseConfig();
+    if (!cfg) return null;
+    try {
+      const url = `${cfg.dbUrl}/patients/${pid}/${type}.json?auth=${cfg.apiKey}`;
+      const res = await fetch(url);
+      return res.ok ? res.json() : null;
+    } catch (e) {
+      console.warn('Firebase pull hatası:', e);
+      return null;
+    }
+  }
+
+  function startFirebasePolling() {
+    if (!firebaseSyncEnabled()) return;
+    stopFirebasePolling();
+    const poll = async () => {
+      if (!aktifPid) return;
+      const [medsFromDb, doneFromDb] = await Promise.all([
+        pullFromFirebase(aktifPid, 'meds'),
+        pullFromFirebase(aktifPid, 'done')
+      ]);
+      if (medsFromDb) { writeJSON(medKey(aktifPid), medsFromDb); }
+      if (doneFromDb) { writeJSON(doneKey(aktifPid), doneFromDb); }
+    };
+    firebasePolling = setInterval(poll, 30000);
+    poll();
+  }
+
+  function stopFirebasePolling() {
+    if (firebasePolling) { clearInterval(firebasePolling); firebasePolling = null; }
+  }
+
+  function syncLocalToFirebase() {
+    if (!firebaseSyncEnabled() || !aktifPid) return;
+    syncToFirebaseRest(aktifPid, getMeds(), 'meds');
+    syncToFirebaseRest(aktifPid, getDone(), 'done');
+  }
+
   /* ==========================================================
      ADIM 3 — CRUD (aktif hasta)
      ========================================================== */
-  function ilacKaydet(v) { const m = getMeds(); m.push({ id: genId(), ad: v.ad, doz: v.doz, times: v.times, updatedAt: Date.now() }); setMeds(m); }
-  function ilacGuncelle(id, v) { const m = getMeds(); const x = m.find((o) => o.id === id); if (x) { x.ad = v.ad; x.doz = v.doz; x.times = v.times; x.updatedAt = Date.now(); } setMeds(m); }
+  function ilacKaydet(v) { const m = getMeds(); m.push({ id: genId(), ad: v.ad, doz: v.doz, times: v.times, updatedAt: Date.now() }); setMeds(m); syncLocalToFirebase(); }
+  function ilacGuncelle(id, v) { const m = getMeds(); const x = m.find((o) => o.id === id); if (x) { x.ad = v.ad; x.doz = v.doz; x.times = v.times; x.updatedAt = Date.now(); } setMeds(m); syncLocalToFirebase(); }
   function ilacSil(id) {
     setMeds(getMeds().filter((m) => m.id !== id));
     const d = getDone(); Object.keys(d).forEach((k) => { if (k.split('|')[0] === id) delete d[k]; }); setDone(d);
+    syncLocalToFirebase();
   }
   function ilacAlindi(id, time, pid) {
     const pidUse = pid || aktifPid; if (!pidUse) return;
     const d = readJSON(doneKey(pidUse), {});
     d[`${id}|${todayStr()}|${time}`] = Date.now(); pruneDone(d); writeJSON(doneKey(pidUse), d);
+    syncToFirebaseRest(pidUse, d, 'done');
   }
   function pruneDone(d) { const cut = Date.now() - 14 * 86400000; Object.keys(d).forEach((k) => { if (d[k] < cut) delete d[k]; }); }
 
@@ -678,6 +747,13 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     alerted.delete(k); deferred.delete(k);
     queue = queue.filter((q) => slotKey(q.med.id, q.time) !== k);
     if (currentDue && slotKey(currentDue.med.id, currentDue.time) === k) currentDue = null;
+    if (isNative && nativeAktif) {
+      const map = readJSON(NOTI_KEY, {});
+      const pendingIds = Object.entries(map)
+        .filter(([_, v]) => v.startsWith(`${med.id}|`))
+        .map(([id, _]) => Number(id));
+      if (pendingIds.length) LocalNotifications.cancel({ notifications: pendingIds.map((id) => ({ id })) }).catch(() => {});
+    }
     listeyiCiz(); kuyruguIsle();
     const now = new Date();
     const ts = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
@@ -685,8 +761,12 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     const meds = getMeds();
     const done = getDone();
     const ds = todayStr();
-    const remaining = meds.filter((m) => m.times.some((t) => !done[`${m.id}|${ds}|${t}`])).length;
-    if (remaining === 0) setTimeout(gunSonuOzetGoster, 600);
+    const hasNotYetDue = meds.some((m) => m.times.some((t) => {
+      if (done[`${m.id}|${ds}|${t}`]) return false;
+      const t0 = parseTime(t);
+      return t0.getTime() > now;
+    }));
+    if (!hasNotYetDue) setTimeout(gunSonuOzetGoster, 600);
   }
   function ertele(item) {
     const ayar = getAyar();
@@ -877,6 +957,10 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     if (!window.confirm(`"${h.ad}" ve tüm ilaç kayıtları kalıcı olarak silinecek. Emin misiniz?`)) return;
     saveHastalar(getHastalar().filter((x) => x.id !== id));
     try { localStorage.removeItem(medKey(id)); localStorage.removeItem(doneKey(id)); localStorage.removeItem(setKey(id)); } catch {}
+    if (firebaseSyncEnabled && db) {
+      set(ref(db, `patients/${id}/meds`), null);
+      set(ref(db, `patients/${id}/done`), null);
+    }
     if (aktifPid === id) { aktifPid = null; aktifHasta = null; setAktifId(null); }
     listeyiCizHastalar(); toast('Hasta silindi.');
   }
@@ -894,6 +978,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     console.log('🔔 hastaGir() BASLADI - pid:', pid, 'aktifPid_once:', aktifPid);
     const h = getHastalar().find((x) => x.id === pid); if (!h) return;
     if (h.pin && h.pin.length && !opts.pinAtlandi) { pinKutuAc(h); return; }
+    stopFirebasePolling();
     aktifPid = pid; aktifHasta = h; setAktifId(pid);
     alerted.clear(); deferred.clear(); queue = []; currentDue = null; modalGizle();
     appGoster();
@@ -901,6 +986,7 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     $('#h-cip-avatar').textContent = harf(h.ad);
     $('#h-cip-avatar').className = 'flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold text-white ' + avatarRenk(h.ad);
     loadAyarSec(); listeyiCiz();
+    if (firebaseSyncEnabled()) startFirebasePolling();
     console.log('🔔 hastaGir() sonrasi notiPlanla() cagriliyor...');
     notiPlanla();
   }
@@ -912,6 +998,26 @@ import { ExactAlarm } from '@ilac/exact-alarm';
   function ayarKapa() { $('#panel-ayar').classList.add('hidden'); document.body.classList.remove('no-scroll'); appGoster(); }
   function loadAyarSec() { const a = getAyar(); $('#set-onerak').value = String(a.onerakDk); $('#set-ertele').value = String(a.erteleDk); }
   function ayarKaydet(k, v) { const a = getAyar(); a[k] = v; saveAyar(aktifPid, a); toast('Ayarlar kaydedildi.'); }
+
+  function firebaseYapilandir() {
+    const dbUrl = prompt('Firebase Database URL (örn: https://xxx-default-rtdb.firebaseio.com):', '');
+    if (!dbUrl) return;
+    const apiKey = prompt('Firebase API Key:', '');
+    if (!apiKey) return;
+    saveFirebaseConfig({ dbUrl, apiKey });
+    toast('Firebase yapılandırıldı. Yeniden başlatın.');
+  }
+
+  function firebaseDurumGuncelle() {
+    const el = $('#firebase-indicator');
+    if (firebaseSyncEnabled()) {
+      el.textContent = 'Etkin';
+      el.className = 'ml-1 text-emerald-600';
+    } else {
+      el.textContent = 'Yapılandırılmadı';
+      el.className = 'ml-1 text-amber-600';
+    }
+  }
 
   async function veriDisa() {
     if (!aktifHasta) return;
@@ -1047,6 +1153,10 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     $('#btn-import').addEventListener('click', () => { const f = $('#import-file'); f.value = ''; f.click(); });
     $('#import-file').addEventListener('change', (e) => { const f = e.target.files[0]; if (f) veriIcce(f); });
 
+    // Firebase config
+    $('#btn-firebase-config').addEventListener('click', firebaseYapilandir);
+    firebaseDurumGuncelle();
+
     // İlaç paneli
     $('#btn-add').addEventListener('click', panelAcarYeni);
     $('#btn-cancel').addEventListener('click', paneliTemizleKapat);
@@ -1062,6 +1172,12 @@ import { ExactAlarm } from '@ilac/exact-alarm';
 
     // Native (Capacitor) Local Notifications hazirla (izin + aksiyon dinleyici)
     setupNative();
+
+    // Firebase sync - check if configured
+    if (firebaseSyncEnabled()) {
+      startFirebasePolling();
+      toast('Firebase senkronizasyonu etkin.');
+    }
 
     // Zaman motoru
     zamanKontroluBaslat();

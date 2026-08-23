@@ -1,6 +1,6 @@
 # İlaç Takip
 
-İlaçlarınızı kaçırmamanız için çalışan, hasta başına PIN korumalı, çoklu hasta destekli bir Android/PWA hatırlatıcı uygulaması.
+İlaçlarınızı kaçırmamanız için çalışan, hasta başına PIN korumalı, çoklu hasta destekli bir Android/PWA hatırlatıcı uygulaması. Aile üyeleriyle gerçek zamanlı senkronizasyon desteği.
 
 ## Özellikler
 
@@ -21,6 +21,7 @@
 - Ayarlar ekranı geri tuşu ile ana ekrana dönüş
 - Uzun ilaç listelerinde bekleyen ilaçlara otomatik kaydırma
 - Gün sonu özet raporu (alınan / atlanan ilaçlar)
+- **Firebase gerçek zamanlı senkronizasyonu** (aile üyeleri arasında)
 - PWA + Capacitor Android (APK)
 
 ## Teknoloji Yığını
@@ -29,10 +30,11 @@
 |--------|-----------|
 | Arayüz | HTML5 + Tailwind CSS (Play CDN) |
 | Mantık | Vanilla JS (ES2019), esbuild ile paketlenir |
-| Depolama | LocalStorage |
+| Depolama | LocalStorage (+ Firebase Realtime Database) |
 | Native | Capacitor 6 |
 | Bildirim | `@capacitor/local-notifications` |
 | Alarm | Custom `@ilac/exact-alarm` plugin (Android 12+) |
+| Senkronizasyon | Firebase Realtime Database (REST API) |
 | Build | Gradle + GitHub Actions |
 
 ## Kurulum (Yerel)
@@ -57,6 +59,45 @@ npx cap sync android
 npx cap open android
 ```
 
+## Firebase Senkronizasyonu
+
+Uygulama, aile üyeleri arasında gerçek zamanlı ilaç durumu senkronizasyonu için Firebase Realtime Database kullanır.
+
+### Firebase Kurulum Adımları:
+
+1. [Firebase Console](https://console.firebase.google.com/) adresine gidin
+2. Yeni bir proje oluşturun veya mevcut bir proje seçin
+3. **Realtime Database** ekleyin:
+   - Database türü: **Real-time Database**
+   - Konumu: **us-central1** (veya en yakın bölge)
+   - Başlangıç modu: **Test mode** (veya gerekirse kilitli mod)
+
+4. Uygulama ayarlarından **Ayarlar > Firebase Senkronizasyonu** bölümüne şunları girin:
+   - Database URL: `https://PROJECT_ID-default-rtdb.firebaseio.com`
+   - API Key: Firebase projesinin AI Platform Kimlik bilgileri altından alınabilir
+
+### Etkinleştirme:
+
+1. Uygulama içinde **Ayarlar** (ayar simgesi) butonuna dokunun
+2. **Firebase Senkronizasyonu** bölümünün altında **Firebase Yapılandır** butonuna dokunun
+3. Database URL ve API Key sorulacak, gerekinize göre girin
+4. Ayarları kaydedip uygulamayı yeniden başlatın
+
+### Güvenlik Kuralları (önerilen):
+
+```json
+{
+  "rules": {
+    "patients": {
+      "$patientId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}
+```
+
 ## APK Oluşturma (GitHub Actions)
 
 Ana dal'a (`main`) her push'ta otomatik olarak debug APK derlenir:
@@ -73,18 +114,18 @@ Ana dal'a (`main`) her push'ta otomatik olarak debug APK derlenir:
 
 ```
 ilac_takip/
-├── app.js                  # Tüm uygulama mantığı (ES module)
+├── app.js                   # Tüm uygulama mantığı (ES module)
 ├── www/
-│   ├── index.html          # PWA şablonu
-│   ├── app.bundle.js       # esbuild çıktısı
-│   ├── style.css           # Özel stiller
-│   └── sw.js               # Service Worker
+│   ├── index.html           # PWA şablonu
+│   ├── app.bundle.js        # esbuild çıktısı
+│   ├── style.css            # Özel stiller
+│   └── sw.js                # Service Worker
 ├── plugins/
-│   └── exact-alarm/        # Android Exact Alarm custom plugin
-├── android/                # Capacitor Android projesi
+│   └── exact-alarm/         # Android Exact Alarm custom plugin
+├── android/                 # Capacitor Android projesi
 ├── docs/
-│   └── screenshots/        # Uygulama ekran görüntüleri
-├── .github/workflows/      # CI/CD
+│   └── screenshots/         # Uygulama ekran görüntüleri
+├── .github/workflows/       # CI/CD
 ├── package.json
 ├── capacitor.config.json
 └── scripts/

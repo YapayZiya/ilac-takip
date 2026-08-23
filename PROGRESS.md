@@ -46,11 +46,40 @@
 ## Faz 7 — UX İyileştirmeleri
 - [x] Ayarlar ekranı geri tuşu ile ana ekrana dönüş
 - [x] Uzun listelerde bekleyen ilaçlara otomatik kaydırma
-- [x] Gün sonu özet raporu (alınan / atlanan ilaçlar)
-- [x] `optimization.md` proje optimizasyon önerileri
+- [x] Gün sonu özet raporu (alındı / atlanan ilaçlar)
+
+## Faz 8 — Hata Düzeltmeleri ve Yeni Özellikler
+
+### Düzeltmeler:
+- [x] **Problem 1 çözüldü**: İlaç alındıysa ilgili native bildirimleri iptal ediliyor. Alarm, ilaç alındı olarak işaretlendikten sonra çalışmıyor.
+- [x] **Problem 2 çözüldü**: Gün sonu özet raporu, ilaçlar alındıysa veya saati geçtiğinde gösteriliyor. Atlanan ilaçları da içerir.
+
+### Yeni Özellikler:
+- [x] **Firebase Realtime Database Senkronizasyonu**: Aile üyeleri uygulamayı açtıkça ilaç durumlarını gerçek zamanlı görüyor
+- [x] **REST API tabanlı senkronizasyon**: Firebase SDK yerine, daha hafif REST API kullanımı
+- [x] **Firebase yapılandırma UI**: Ayarlar paneline Firebase yapılandırma seçeneği eklendi
+- [x] **30 saniyelik polling**: Gerçek zamanlı senkronizasyon için periyodik veri senkronizasyonu
 
 ## Açık Sorunlar
-- [x] ~~Android 13+ `POST_NOTIFICATIONS` izni eksik~~ (eklendi)
-- [ ] Uygulama öldürüldüğünde exact alarm güvenilirliği
 - [ ] OEM bateri optimizasyonu (Xiaomi, Huawei vb.) engellemeleri
 - [ ] Release APK + signing yapılandırması
+
+## Kararlar ve Notlar
+
+### Firebase Seçimi
+Ücretsiz bir sunucu çözümü olarak Firebase Realtime Database seçildi:
+- Ücretsiz tier: 100 GB veritabanı, 10k okuma/s, 1k yazma/s
+- Gerçek zamanlı senkronizasyon için ideal
+- Mobil uygulama entegrasyonu kolaylığı
+
+### Alarm Mantığı Yeniden Düzenlendi
+`almIsaretle()` fonksiyonu, ilaç alındı işaretlendikten sonra:
+1. Local storage'da `done` kaydını günceller
+2. Native bildirimleri iptal eder (eğer varsa)
+3. Firebase'e yerel değişikliği gönderir
+4. Gün sonu özet kontrolü yapılır
+
+### Gün Sonu Özet Mantığı
+Yeni mantık: `hasNotYetDue` kontrolü
+- Eğer tüm ilaç saatleri ya alındıysa ya da geçmişse, özet gösterilir
+- Bekleyen (hala gelmesi gereken) ilaçlar varsa, özet gösterilmez
