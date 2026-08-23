@@ -96,7 +96,7 @@ let aktifHastaId = null;
 let aktifHasta = null;
 let aktifIlaclar = [];
 let aktifAlindi = {};
-let aktifAyarlar = { onerakDk: 15, erteleDk: 5 };
+let aktifAyarlar = { onerakDk: 15, erteleDk: 5, duzenButonlari: false };
 let aktifEkran = 'ekran-hastalar';
 let acikModallar = [];
 let pinHasta = null;
@@ -115,7 +115,7 @@ function hastaDurum(hastaId) {
     hasta: hasta,
     ilaclar: hasta ? yukle(hastaIlacKey(hastaId), []) : [],
     alindi: hasta ? yukle(hastaAlindiKey(hastaId), {}) : {},
-    ayarlar: hasta ? Object.assign({ onerakDk: 15, erteleDk: 5 }, yukle(hastaAyarKey(hastaId), {})) : { onerakDk: 15, erteleDk: 5 }
+    ayarlar: hasta ? Object.assign({ onerakDk: 15, erteleDk: 5, duzenButonlari: false }, yukle(hastaAyarKey(hastaId), {})) : { onerakDk: 15, erteleDk: 5, duzenButonlari: false }
   };
 }
 
@@ -233,8 +233,20 @@ function hastaPaneliAc(hastaId) {
   byId('tarih-bilgi').textContent = bugunTurkce();
   gosterEkran('ekran-hasta');
   ilacKartlariniCiz();
+  kalanIlacaKaydir();
   alarmKontrolu();
   gunSonuKontrol();
+}
+
+function kalanIlacaKaydir() {
+  const kartlar = document.querySelectorAll('#ilac-kartlari [data-durum]');
+  const hedef = Array.prototype.find.call(kartlar, (k) => {
+    const d = k.getAttribute('data-durum');
+    return d === 'bekliyor' || d === 'yakin' || d === 'gecikti';
+  });
+  if (hedef) {
+    hedef.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 
 function aktifVerileriTazele() {
@@ -295,6 +307,7 @@ function ilacKartlariniCiz() {
 
     const kart = document.createElement('div');
     kart.className = 'flex items-stretch gap-3 rounded-xl border ' + renk + ' p-4 shadow-sm';
+    kart.setAttribute('data-durum', durum);
     kart.innerHTML =
       '<div class="w-1.5 shrink-0 rounded-full ' + cizgi + '"></div>' +
       '<div class="min-w-0 flex-1">' +
@@ -311,10 +324,12 @@ function ilacKartlariniCiz() {
         ? '<span class="text-xs font-medium text-green-600">✓ ' + saatBiçim(alindiT) + '</span>'
         : '<button data-alindi="' + doz.key + '" data-ilac-id="' + doz.ilac.id + '" data-saat="' + doz.saat + '" class="btn-alindi rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-brand-700 active:scale-95">Alındı ✓</button>') +
       '</div>' +
-      '<div class="mt-2 flex items-center justify-end gap-1 border-t border-gray-100 pt-2 text-xs">' +
-      '<button data-ilac-duzenle="' + doz.ilac.id + '" type="button" class="rounded-lg px-2.5 py-1.5 font-medium text-gray-500 transition hover:bg-brand-50 hover:text-brand-700">✏️ Düzenle</button>' +
-      '<button data-ilac-sil="' + doz.ilac.id + '" type="button" class="rounded-lg px-2.5 py-1.5 font-medium text-gray-500 transition hover:bg-red-50 hover:text-red-600">🗑️ Sil</button>' +
-      '</div>' +
+      (aktifAyarlar.duzenButonlari
+        ? '<div class="mt-2 flex items-center justify-end gap-1 border-t border-gray-100 pt-2 text-xs">' +
+        '<button data-ilac-duzenle="' + doz.ilac.id + '" type="button" class="rounded-lg px-2.5 py-1.5 font-medium text-gray-500 transition hover:bg-brand-50 hover:text-brand-700">✏️ Düzenle</button>' +
+        '<button data-ilac-sil="' + doz.ilac.id + '" type="button" class="rounded-lg px-2.5 py-1.5 font-medium text-gray-500 transition hover:bg-red-50 hover:text-red-600">🗑️ Sil</button>' +
+        '</div>'
+        : '') +
       '</div>';
     kap.appendChild(kart);
   });
@@ -460,6 +475,41 @@ async function tarayiciBildirimGoster(title, body) {
 }
 
 /* ============ GÜN SONU ÖZETİ ============ */
+function raporDepoKey(hastaId) { return 'ilac_takip:rapor:' + hastaId; }
+
+function gunSonuRaporuKaydet(hastaId) {
+  const bugun = bugunKey();
+  const durum = hastaDurum(hastaId);
+  const detay = [];
+  durum.ilaclar.forEach((ilac) => {
+    (ilac.times || []).forEach((saat) => {
+      const key = tarihliAlindiKey(ilac.id, bugun, saat);
+      const alindiT = durum.alindi[key];
+      detay.push({
+        ilac: ilac.ad,
+        saat: saat,
+        alindi: !!alindiT,
+        alindiSaat: alindiT ? saatBiçim(alindiT) : null
+      });
+    });
+  });
+  detay.sort((a, b) => a.saat.localeCompare(b.saat));
+  const planlanan = detay.length;
+  const alinan = detay.filter((d) => d.alindi).length;
+  const raporlar = yukle(raporDepoKey(hastaId), {});
+  raporlar[bugun] = {
+    planlanan: planlanan,
+    alinan: alinan,
+    geciken: planlanan - alinan,
+    detay: detay
+  };
+  const kesim = tarihDeltaKey(-6);
+  Object.keys(raporlar).forEach((t) => {
+    if (t < kesim) delete raporlar[t];
+  });
+  kaydet(raporDepoKey(hastaId), raporlar);
+}
+
 function gunSonuKontrol() {
   if (!aktifHastaId) return;
   const bugun = bugunKey();
@@ -475,21 +525,64 @@ function gunSonuKontrol() {
   const bekleyen = dozlar.filter((d) => !durum.alindi[d.key]);
   if (bekleyen.length) return;
   kaydet(ozetKey(aktifHastaId), bugun);
+  gunSonuRaporuKaydet(aktifHastaId);
+  const rapor = yukle(raporDepoKey(aktifHastaId), {})[bugun] || { detay: [], planlanan: 0, alinan: 0 };
   const kap = byId('ozet-icerik');
   kap.innerHTML = '';
-  dozlar.sort((a, b) => a.saat.localeCompare(b.saat));
-  dozlar.forEach((d) => {
-    const alindiT = durum.alindi[d.key];
+  rapor.detay.forEach((d) => {
     const satir = document.createElement('div');
-    satir.className = 'flex items-center justify-between rounded-xl px-3 py-2 ' + (alindiT ? 'bg-green-50' : 'bg-red-50');
+    satir.className = 'flex items-center justify-between rounded-xl px-3 py-2 ' + (d.alindi ? 'bg-green-50' : 'bg-red-50');
     satir.innerHTML =
-      '<div><p class="text-sm font-semibold text-gray-700">' + escapeHtml(d.ilac.ad) + '</p><p class="text-xs text-gray-400">' + d.saat + '</p></div>' +
-      (alindiT
-        ? '<span class="text-sm font-semibold text-green-600">✓ ' + saatBiçim(alindiT) + '</span>'
+      '<div><p class="text-sm font-semibold text-gray-700">' + escapeHtml(d.ilac) + '</p><p class="text-xs text-gray-400">' + d.saat + '</p></div>' +
+      (d.alindi
+        ? '<span class="text-sm font-semibold text-green-600">✓ ' + d.alindiSaat + '</span>'
         : '<span class="text-sm font-semibold text-red-500">Geçti</span>');
     kap.appendChild(satir);
   });
   modalAc('modal-ozet');
+}
+
+function tarihKeyiTurkce(tarihKey) {
+  const gunler = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi'];
+  const aylar = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+  const p = tarihKey.split('-');
+  const d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+  return gunler[d.getDay()] + ', ' + d.getDate() + ' ' + aylar[d.getMonth()];
+}
+
+function raporlariGoster() {
+  if (!aktifHastaId) return;
+  const raporlar = yukle(raporDepoKey(aktifHastaId), {});
+  const kap = byId('rapor-listesi');
+  kap.innerHTML = '';
+  const tarihler = Object.keys(raporlar).sort().reverse();
+  if (!tarihler.length) {
+    kap.innerHTML = '<p class="py-6 text-center text-sm text-gray-400">Henüz rapor yok. Tüm dozlar alındığında gün sonu raporu oluşturulur.</p>';
+    modalAc('modal-raporlar');
+    return;
+  }
+  tarihler.forEach((tarih) => {
+    const r = raporlar[tarih];
+    const satir = document.createElement('div');
+    satir.className = 'rounded-xl border border-gray-100 bg-white p-3 shadow-sm';
+    satir.innerHTML =
+      '<div class="flex items-center justify-between">' +
+      '<span class="text-sm font-semibold text-gray-800">' + tarihKeyiTurkce(tarih) + '</span>' +
+      '<span class="text-xs font-semibold ' + (r.geciken ? 'text-amber-600' : 'text-green-600') + '">' + r.alinan + '/' + r.planlanan + ' alındı</span>' +
+      '</div>' +
+      '<div class="mt-2 space-y-1">' +
+      r.detay.map((d) =>
+        '<div class="flex items-center justify-between text-sm">' +
+        '<span class="text-gray-700">' + escapeHtml(d.ilac) + ' · ' + d.saat + '</span>' +
+        (d.alindi
+          ? '<span class="font-medium text-green-600">✓ ' + d.alindiSaat + '</span>'
+          : '<span class="font-medium text-red-500">Geçti</span>') +
+        '</div>'
+      ).join('') +
+      '</div>';
+    kap.appendChild(satir);
+  });
+  modalAc('modal-raporlar');
 }
 
 /* ============ HASTA FORM (ekle/düzenle/sil) ============ */
@@ -543,7 +636,7 @@ function hastaSil(hastaId) {
     aktifHasta = null;
     aktifIlaclar = [];
     aktifAlindi = {};
-    aktifAyarlar = { onerakDk: 15, erteleDk: 5 };
+    aktifAyarlar = { onerakDk: 15, erteleDk: 5, duzenButonlari: false };
   }
   firebasePut('/patients/' + hastaId, null);
   firebaseRegistryPush();
@@ -631,11 +724,13 @@ function ayarlarPaneliniAc() {
   byId('onerak-range').value = aktifAyarlar.onerakDk;
   byId('ertele-select').value = String(aktifAyarlar.erteleDk);
   byId('onerak-deger').textContent = aktifAyarlar.onerakDk + ' dk';
+  byId('duzen-toggle').checked = !!aktifAyarlar.duzenButonlari;
   modalAc('modal-ayarlar');
 }
 function ayarlariKaydet() {
   aktifAyarlar.onerakDk = Number(byId('onerak-range').value);
   aktifAyarlar.erteleDk = Number(byId('ertele-select').value);
+  aktifAyarlar.duzenButonlari = byId('duzen-toggle').checked;
   kaydet(hastaAyarKey(aktifHastaId), aktifAyarlar);
   byId('onerak-deger').textContent = aktifAyarlar.onerakDk + ' dk';
   modalKapat('modal-ayarlar');
@@ -921,6 +1016,7 @@ function olaylariBagla() {
   byId('btn-ilac-form-kaydet').addEventListener('click', ilacFormKaydet);
   byId('btn-saat-ekle').addEventListener('click', saatEkle);
   byId('btn-ayarlar').addEventListener('click', ayarlarPaneliniAc);
+  byId('btn-raporlar').addEventListener('click', raporlariGoster);
   byId('btn-ayar-kaydet').addEventListener('click', ayarlariKaydet);
   byId('btn-senkronize').addEventListener('click', () => { senkronizeEt().catch(() => toast('Senkronizasyon başarısız')); });
   byId('btn-alarm-alindi').addEventListener('click', alarmAlindiTıkla);
