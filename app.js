@@ -985,10 +985,28 @@ import { ExactAlarm } from '@ilac/exact-alarm';
     $('#h-cip-adi').textContent = h.ad;
     $('#h-cip-avatar').textContent = harf(h.ad);
     $('#h-cip-avatar').className = 'flex h-11 w-11 items-center justify-center rounded-full text-lg font-bold text-white ' + avatarRenk(h.ad);
-    loadAyarSec(); listeyiCiz();
+    loadAyarSec();
+    listeyiCiz();
     if (firebaseSyncEnabled()) startFirebasePolling();
     console.log('🔔 hastaGir() sonrasi notiPlanla() cagriliyor...');
     notiPlanla();
+    if (firebasePolling) {
+      setTimeout(() => {
+        const meds = getMeds(), done = getDone(), ds = todayStr();
+        const inst = [];
+        for (const m of meds) {
+          for (const time of m.times) {
+            const isDone = !!done[`${m.id}|${ds}|${time}`];
+            const now = new Date();
+            const overdue = !isDone && now >= parseTime(time);
+            inst.push({ med: m, time, isDone, overdue });
+          }
+        }
+        const total = inst.length;
+        const doneCount = inst.filter((i) => i.isDone).length;
+        ozetiGuncelle(total, doneCount);
+      }, 100);
+    }
   }
 
   /* ==========================================================
