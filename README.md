@@ -12,6 +12,7 @@ Hem tarayıcıda **PWA** olarak hem de **Capacitor** ile paketlenmiş **native A
 ### Hasta Yönetimi
 - **Çoklu hasta** — her hastanın kendi ilaç listesi, alındı takibi ve ayarları
 - **PIN koruma** — opsiyonel 4-6 haneli PIN; PIN'li hastaya girişte doğrulama ekranı
+- **"Bu telefona güven"** — PIN doğru girildiğinde işaretlenirse o hasta bu cihazda bir daha PIN sormadan açılır; güven Ayarlar'dan kaldırılabilir
 - **Hasta düzenleme / silme** — listede her kartın yanındaki ikonlarla (silme onay ister)
 
 ### İlaç Takibi
@@ -29,7 +30,8 @@ Hem tarayıcıda **PWA** olarak hem de **Capacitor** ile paketlenmiş **native A
 - **Alarm kuyruğu** — birden fazla doz aynı anda geldiğinde sırayla gösterilir
 - **Erteleme** — 5/10/15/20/30 dk (Ayarlar'dan seçilir); süre dolunca tekrar uyarır
 - **15 saniyede bir kontrol** — uygulama açıkken alarm motoru sürekli çalışır
-- **Native bildirimler** — `@capacitor/local-notifications` ile uygulama arka plandayken bile zamanlanmış bildirimler; bildirimin üzerindeki **"Alındı ✓"** butonuyla doğrudan işaretleme
+- **Sadece açık hasta alarmları** — alarmlar yalnızca o an ekranda açık olan hasta için çalar; hiç açılmamış bir hastanın web alarmı gelmez
+- **Native bildirimler** — `@capacitor/local-notifications` ile uygulama arka plandayken bile zamanlanmış bildirimler; yalnızca bu cihazda açılmış hastalar için kurulur, bildirimin üzerindeki **"Alındı ✓"** butonuyla doğrudan işaretleme
 
 ### Raporlar
 - **Gün sonu özeti** — günün tüm dozları alındığında otomatik özet modalı (alınan saat / geçen dozlar)
@@ -152,6 +154,8 @@ ilac_takip:ayar:{hastaId}     → { onerakDk, erteleDk, duzenButonlari }
 ilac_takip:rapor:{hastaId}    → { "YYYY-MM-DD": { planlanan, alinan, geciken, detay } } (7 gün)
 ilac_takip:noti               → { [bildirimId]: "{ilacId}|{tarih}|{saat}" }
 ilac_takip:ozet:{hastaId}     → son gösterilen özet tarihi
+ilac_takip:guven:{hastaId}    → true (bu telefona güvenildiyse — PIN sorulmaz)
+ilac_takip:acilan             → [hastaId, ...] (bu cihazda açılmış hastalar)
 ilac_takip:exact-asked        → tam zamanlı alarm izni istendi mi
 ilac_takip:battery-asked      → pil optimizasyonu muafiyeti istendi mi
 ```

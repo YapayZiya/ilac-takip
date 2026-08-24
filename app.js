@@ -25,6 +25,15 @@ function hastaIlacKey(id) { return 'ilac_takip:ilac:' + id; }
 function hastaAlindiKey(id) { return 'ilac_takip:alindi:' + id; }
 function hastaAyarKey(id) { return 'ilac_takip:ayar:' + id; }
 function ozetKey(id) { return 'ilac_takip:ozet:' + id; }
+function hastaGuvenKey(id) { return 'ilac_takip:guven:' + id; }
+function acilanHastalar() { return yukle('ilac_takip:acilan', []); }
+function hastaAcildi(hastaId) {
+  const list = acilanHastalar();
+  if (!list.includes(hastaId)) {
+    list.push(hastaId);
+    kaydet('ilac_takip:acilan', list);
+  }
+}
 
 function yukle(key, fallback) {
   try {
@@ -179,7 +188,7 @@ function hastaListesiniCiz() {
 }
 
 function hastaKartiTıkla(hasta) {
-  if (hasta.pin) {
+  if (hasta.pin && !yukle(hastaGuvenKey(hasta.id), false)) {
     pinEkraniniAc(hasta);
   } else {
     hastaPaneliAc(hasta.id);
@@ -192,6 +201,7 @@ function pinEkraniniAc(hasta) {
   byId('pin-hasta-ad').textContent = hasta.ad;
   byId('pin-input').value = '';
   byId('pin-hata').classList.add('hidden');
+  byId('pin-guven').checked = false;
   gosterEkran('ekran-pin');
   setTimeout(() => byId('pin-input').focus(), 50);
 }
@@ -199,6 +209,10 @@ function pinDogrula() {
   const deger = byId('pin-input').value;
   if (pinHasta && deger === String(pinHasta.pin)) {
     const id = pinHasta.id;
+    if (byId('pin-guven').checked) {
+      kaydet(hastaGuvenKey(id), true);
+      toast('Bu telefon güvenildi — artık PIN sorulmayacak');
+    }
     pinHasta = null;
     hastaPaneliAc(id);
   } else {
@@ -223,6 +237,7 @@ function pinTusBas(d) {
 function hastaPaneliAc(hastaId) {
   aktifHastaId = hastaId;
   kaydet(K.aktif, hastaId);
+  hastaAcildi(hastaId);
   aktifHasta = hastalar.find((h) => h.id === hastaId);
   if (!aktifHasta) { gosterEkran('ekran-hastalar'); return; }
   const durum = hastaDurum(hastaId);
@@ -338,22 +353,23 @@ function ilacKartlariniCiz() {
 /* ============ ALARM MOTORU (15 SN) ============ */
 function alarmKontrolu() {
   if (byId('modal-alarm').classList.contains('hidden') === false) return;
+  if (aktifEkran !== 'ekran-hasta' || !aktifHastaId) return;
   const now = Date.now();
   const bugun = bugunKey();
-  hastalar.forEach((hasta) => {
-    const durum = hastaDurum(hasta.id);
-    const onerakMs = (durum.ayarlar.onerakDk || 15) * 60000;
-    durum.ilaclar.forEach((ilac) => {
-      (ilac.times || []).forEach((saat) => {
-        const key = tarihliAlindiKey(ilac.id, bugun, saat);
-        if (durum.alindi[key]) return;
-        const t = buguneSaat(saat).getTime();
-        if (now < t - onerakMs || now > t + AKTIF_PENCERE_DK * 60000) return;
-        if (ertelenenler[key] && ertelenenler[key] > now) return;
-        if (alarmKuyrugu.some((e) => e.key === key)) return;
-        if (alarmAcikKey === key) return;
-        alarmKuyrugu.push({ hastaId: hasta.id, ilac: ilac, saat: saat, key: key });
-      });
+  const hasta = hastalar.find((h) => h.id === aktifHastaId);
+  if (!hasta) return;
+  const durum = hastaDurum(hasta.id);
+  const onerakMs = (durum.ayarlar.onerakDk || 15) * 60000;
+  durum.ilaclar.forEach((ilac) => {
+    (ilac.times || []).forEach((saat) => {
+      const key = tarihliAlindiKey(ilac.id, bugun, saat);
+      if (durum.alindi[key]) return;
+      const t = buguneSaat(saat).getTime();
+      if (now < t - onerakMs || now > t + AKTIF_PENCERE_DK * 60000) return;
+      if (ertelenenler[key] && ertelenenler[key] > now) return;
+      if (alarmKuyrugu.some((e) => e.key === key)) return;
+      if (alarmAcikKey === key) return;
+      alarmKuyrugu.push({ hastaId: hasta.id, ilac: ilac, saat: saat, key: key });
     });
   });
   alarmSıradakiniGoster();
@@ -607,7 +623,11 @@ function hastaFormKaydet() {
   let kaydedilenId = null;
   if (duzenlenenHasta) {
     const h = hastalar.find((x) => x.id === duzenlenenHasta.id);
-    if (h) { h.ad = ad; h.pin = pin || ''; }
+    if (h) {
+      if (String(h.pin || '') !== pin) localStorage.removeItem(hastaGuvenKey(h.id));
+      h.ad = ad;
+      h.pin = pin || '';
+    }
     kaydedilenId = duzenlenenHasta.id;
   } else {
     kaydedilenId = uid();
@@ -630,6 +650,9 @@ function hastaSil(hastaId) {
   localStorage.removeItem(hastaAlindiKey(hastaId));
   localStorage.removeItem(hastaAyarKey(hastaId));
   localStorage.removeItem(ozetKey(hastaId));
+  localStorage.removeItem(raporDepoKey(hastaId));
+  localStorage.removeItem(hastaGuvenKey(hastaId));
+  kaydet('ilac_takip:acilan', acilanHastalar().filter((id) => id !== hastaId));
   nativeBildirimleriIptalEt(silinenMedler.map((m) => m.id));
   if (aktifHastaId === hastaId) {
     aktifHastaId = null;
@@ -725,6 +748,8 @@ function ayarlarPaneliniAc() {
   byId('ertele-select').value = String(aktifAyarlar.erteleDk);
   byId('onerak-deger').textContent = aktifAyarlar.onerakDk + ' dk';
   byId('duzen-toggle').checked = !!aktifAyarlar.duzenButonlari;
+  const guvenVar = !!aktifHasta.pin && yukle(hastaGuvenKey(aktifHastaId), false);
+  byId('pin-guven-alani').classList.toggle('hidden', !guvenVar);
   modalAc('modal-ayarlar');
 }
 function ayarlariKaydet() {
@@ -790,7 +815,10 @@ async function nativeDozBildirimleriniKur(hastaId) {
     const perms = await LocalNotifications.checkPermissions();
     if (perms.display !== 'granted') return;
     const notiMap = yukle(K.noti, {});
-    const hedefler = hastaId ? hastalar.filter((h) => h.id === hastaId) : hastalar;
+    const acilan = hastaId ? null : acilanHastalar();
+    const hedefler = hastaId
+      ? hastalar.filter((h) => h.id === hastaId)
+      : hastalar.filter((h) => acilan.includes(h.id));
     const plan = [];
     const planAnahtarlari = new Set();
     hedefler.forEach((hasta) => {
@@ -1017,6 +1045,11 @@ function olaylariBagla() {
   byId('btn-saat-ekle').addEventListener('click', saatEkle);
   byId('btn-ayarlar').addEventListener('click', ayarlarPaneliniAc);
   byId('btn-raporlar').addEventListener('click', raporlariGoster);
+  byId('btn-pin-guven-kaldir').addEventListener('click', () => {
+    localStorage.removeItem(hastaGuvenKey(aktifHastaId));
+    toast('PIN güveni kaldırıldı');
+    ayarlarPaneliniAc();
+  });
   byId('btn-ayar-kaydet').addEventListener('click', ayarlariKaydet);
   byId('btn-senkronize').addEventListener('click', () => { senkronizeEt().catch(() => toast('Senkronizasyon başarısız')); });
   byId('btn-alarm-alindi').addEventListener('click', alarmAlindiTıkla);

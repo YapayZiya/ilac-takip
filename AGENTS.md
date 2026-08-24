@@ -125,6 +125,8 @@ ilac_takip:ayar:{hastaId}     → { onerakDk: 15, erteleDk: 5, duzenButonlari: f
 ilac_takip:rapor:{hastaId}    → { "YYYY-MM-DD": { planlanan, alinan, geciken, detay: [{ilac, saat, alindi, alindiSaat}] } } (son 7 gün)
 ilac_takip:noti               → { [bildirimId]: "{ilacId}|{tarih}|{saat}" } (native eşleme)
 ilac_takip:ozet:{hastaId}     → son gösterilen özet tarihi
+ilac_takip:guven:{hastaId}    → true (bu telefona güvenildiyse — PIN sorulmaz)
+ilac_takip:acilan             → [hastaId, ...] (bu cihazda açılmış hastalar — native bildirim buna bağlı)
 ilac_takip:exact-asked        → tam zamanlı alarm izni istendi mi (flag)
 ilac_takip:battery-asked      → pil optimizasyonu muafiyeti istendi mi (flag)
 ```
@@ -133,6 +135,9 @@ ilac_takip:battery-asked      → pil optimizasyonu muafiyeti istendi mi (flag)
 gösterilmeyeceğini kontrol eder — Ayarlar panelindeki checkbox ile değiştirilir.
 `ilac_takip:rapor:{hastaId}`: gün sonu raporları; kayıt sırasında 7 günden eski kayıtlar
 silinir (tarih anahtarları `YYYY-MM-DD` string karşılaştırmasıyla kesilir).
+`ilac_takip:guven:{hastaId}`: PIN doğru girilip "Bu telefona güven" işaretlenince `true`
+olur; bu hasta artık bu cihazda PIN sorulmadan açılır. Ayarlar panelindeki
+"PIN güvenini kaldır" butonu ile temizlenir; hastanın PIN'i değiştiğinde de otomatik silinir.
 
 ### Firebase Realtime Database
 
@@ -189,6 +194,8 @@ kaydetme/silme) başarı/başarısızlığa göre toast gösterir.
 
 ### Alarm motoru (web tarafı)
 - `setInterval(..., 15000)` ile `alarmKontrolu()`
+- SADECE açık (aktif) hasta paneli için çalışır: `aktifEkran === 'ekran-hasta'` kontrolü —
+  hiç açılmamış/kapalı hastanın alarmı çalmaz (kullanıcı şikâyetinden çıkarılmış kural)
 - Aktif pencere: doz saati − önerak (varsayılan 15 dk) ile doz saati + 120 dk
 - Aktif penceredeki, alınmamış, ertelenmemiş dozlar `alarmKuyrugu`'na eklenir, sırayla gösterilir
 - Modal + Web Audio bip (iki notalık) + tarayıcı bildirimi
@@ -197,9 +204,14 @@ kaydetme/silme) başarı/başarısızlığa göre toast gösterir.
 
 ### Native bildirimler (Capacitor)
 - `ilac_takip:noti` haritası bildirim ID → doz anahtarı eşlemesi tutar
+- Yalnızca **bu cihazda açılmış** hastalar için kurulur: `hastaPaneliAc()` her açılışta
+  `hastaAcildi()` ile `ilac_takip:acilan` listesini günceller; `nativeDozBildirimleriniKur()`
+  hasta belirtilmeden çağrıldığında yalnızca bu listedekileri planlar (hiç açılmamış hastanın
+  bildirimi gelmez)
 - Her CRUD/alındı sonrası `nativeDozBildirimleriniKur()` ile bugün + yarın yeniden kurulur
 - `registerActionTypes` → "Alındı ✓" aksiyonu; `localNotificationActionPerformed` dinleyicisi
-  bildirimden direkt `ilacAlindi()` çağırır
+  `evt.actionId === 'alindi'` ise (aksiyon butonuna basıldıysa) `ilacAlindi()` çağırır —
+  bildirim gövdesine dokunmak (`actionId === 'tap'`) dozu işaretlemez
 - `ExactAlarm.canScheduleExactAlarms()` → izin yoksa settings'e yönlendir
 - İzin istekleri (POST_NOTIFICATIONS, exact alarm, pil optimizasyonu) birer kez yapılır
 
