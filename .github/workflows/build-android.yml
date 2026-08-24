@@ -35,6 +35,12 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
+      - name: Copy alarm sound to Android resources
+        run: |
+          mkdir -p android/app/src/main/res/raw
+          cp www/alarm.wav android/app/src/main/res/raw/alarm_takip.wav
+          ls -la android/app/src/main/res/raw/
+
       - name: Inject Android permissions
         run: |
           MANIFEST="android/app/src/main/AndroidManifest.xml"

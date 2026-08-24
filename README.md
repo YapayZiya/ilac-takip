@@ -25,7 +25,9 @@ Hem tarayıcıda **PWA** olarak hem de **Capacitor** ile paketlenmiş **native A
 - **Düzenle / Sil butonları** — varsayılan olarak gizli, **Ayarlar** panelinden tek tıkla açılıp kapanır (daha temiz görünüm)
 
 ### Hatırlatmalar
-- **Sesli + Görsel alarm** — Web Audio API iki notalık bip, tarayıcı bildirimi ve ekranda alarm kartı
+- **Sesli + Görsel alarm** — Web Audio API ile çalan, seçilebilir alarm sesleri ve ekranda alarm kartı
+- **Alarm sesi seçimi** — Ayarlar'dan üç desen arasından seçim: **Uzun siren** (varsayılan), **Kesintili zil**, **Kısa bip**; alarm kapatılana kadar (en fazla 30 sn) tekrarlanır
+- **Android bildirim sesi** — native bildirimler için paketlenmiş özel bir alarm sesi (`alarm_takip.wav`) kullanılır
 - **Akıllı zamanlama** — doz saatinden "önerak" süresi (0-45 dk, varsayılan 15 dk) kadar önce uyarır, doz saatinden 120 dk sonrasına kadar aktif kalır
 - **Alarm kuyruğu** — birden fazla doz aynı anda geldiğinde sırayla gösterilir
 - **Erteleme** — 5/10/15/20/30 dk (Ayarlar'dan seçilir); süre dolunca tekrar uyarır
@@ -68,7 +70,7 @@ Hem tarayıcıda **PWA** olarak hem de **Capacitor** ile paketlenmiş **native A
 # Bağımlılıkları kur
 npm install
 
-# Web asset'leri derle (CSS + JS)
+# Web asset'leri derle (alarm sesi + CSS + JS)
 npm run build
 
 # Geliştirme sunucusu
@@ -150,7 +152,7 @@ ilac_takip:hastalar           → [{ id, ad, pin }]
 ilac_takip:aktif              → hasta id (string)
 ilac_takip:ilac:{hastaId}     → [{ id, ad, doz, times, updatedAt }]
 ilac_takip:alindi:{hastaId}   → { "{ilacId}|{YYYY-MM-DD}|{saat}": timestamp }
-ilac_takip:ayar:{hastaId}     → { onerakDk, erteleDk, duzenButonlari }
+ilac_takip:ayar:{hastaId}     → { onerakDk, erteleDk, duzenButonlari, alarmSesi }
 ilac_takip:rapor:{hastaId}    → { "YYYY-MM-DD": { planlanan, alinan, geciken, detay } } (7 gün)
 ilac_takip:noti               → { [bildirimId]: "{ilacId}|{tarih}|{saat}" }
 ilac_takip:ozet:{hastaId}     → son gösterilen özet tarihi

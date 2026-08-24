@@ -6,11 +6,12 @@
   "type": "module",
   "scripts": {
     "start": "python -m http.server 8000 --directory www",
+    "build:sound": "node scripts/generate-alarm-sound.cjs",
     "build:css": "tailwindcss -i ./src/tailwind-input.css -o ./www/tailwind.css --minify",
     "build:js": "esbuild app.js --bundle --minify --format=iife --platform=browser --target=es2019 --outfile=www/app.bundle.js",
-    "build": "npm run build:css && npm run build:js",
+    "build": "npm run build:sound && npm run build:css && npm run build:js",
     "android:icon": "node scripts/copy-icon.cjs",
-    "postinstall": "node scripts/copy-icon.cjs"
+    "postinstall": "node scripts/copy-icon.cjs && node scripts/generate-alarm-sound.cjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

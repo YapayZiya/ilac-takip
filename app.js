@@ -105,7 +105,7 @@ let aktifHastaId = null;
 let aktifHasta = null;
 let aktifIlaclar = [];
 let aktifAlindi = {};
-let aktifAyarlar = { onerakDk: 15, erteleDk: 5, duzenButonlari: false };
+let aktifAyarlar = { onerakDk: 15, erteleDk: 5, duzenButonlari: false, alarmSesi: 'uzun' };
 let aktifEkran = 'ekran-hastalar';
 let acikModallar = [];
 let pinHasta = null;
@@ -124,7 +124,7 @@ function hastaDurum(hastaId) {
     hasta: hasta,
     ilaclar: hasta ? yukle(hastaIlacKey(hastaId), []) : [],
     alindi: hasta ? yukle(hastaAlindiKey(hastaId), {}) : {},
-    ayarlar: hasta ? Object.assign({ onerakDk: 15, erteleDk: 5, duzenButonlari: false }, yukle(hastaAyarKey(hastaId), {})) : { onerakDk: 15, erteleDk: 5, duzenButonlari: false }
+    ayarlar: hasta ? Object.assign({ onerakDk: 15, erteleDk: 5, duzenButonlari: false, alarmSesi: 'uzun' }, yukle(hastaAyarKey(hastaId), {})) : { onerakDk: 15, erteleDk: 5, duzenButonlari: false, alarmSesi: 'uzun' }
   };
 }
 
@@ -143,6 +143,7 @@ function modalKapat(id) {
   acikModallar = acikModallar.filter((m) => m !== id);
 }
 function tümModallariKapat() {
+  alarmSesiDurdur();
   acikModallar.slice().forEach((m) => modalKapat(m));
 }
 function modalAcikMı() {
@@ -391,12 +392,13 @@ function alarmSıradakiniGoster() {
   byId('alarm-saat').textContent = giris.saat;
   byId('btn-alarm-ertele').textContent = 'Ertele (' + (durum.ayarlar.erteleDk || 5) + ' dk)';
   modalAc('modal-alarm');
-  bipCal();
+  alarmSesiCal(durum.ayarlar.alarmSesi);
   tarayiciBildirimGoster('İlaç zamanı: ' + giris.ilac.ad, durum.hasta.ad + ' · ' + giris.saat);
 }
 
 function alarmAlindiTıkla() {
   if (!alarmAcikKey) return;
+  alarmSesiDurdur();
   const key = alarmAcikKey;
   alarmAcikKey = null;
   modalKapat('modal-alarm');
@@ -408,6 +410,7 @@ function alarmAlindiTıkla() {
 }
 function alarmErteleTıkla() {
   if (!alarmAcikKey) return;
+  alarmSesiDurdur();
   const key = alarmAcikKey;
   alarmAcikKey = null;
   const hedef = bulKuyrukKaynagi(key);
@@ -455,29 +458,86 @@ function ilacAlindi(hastaId, ilacId, saat, zamani) {
 
 /* ============ SES + TARAYICI BİLDİRİMİ ============ */
 let audioCtx = null;
+let alarmSesiStop = null;
 function sesKilidiniAc() {
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
   } catch (e) {}
 }
-function bipCal() {
+function alarmSesiDurdur() {
+  if (alarmSesiStop) {
+    alarmSesiStop();
+    alarmSesiStop = null;
+  }
+}
+const ALARM_DESENLERI = {
+  kisa: [
+    { t: 0.0, f: 880, s: 0.35, v: 0.5 },
+    { t: 0.4, f: 660, s: 0.35, v: 0.5 }
+  ],
+  uzun: [
+    { t: 0.0, f: 640, s: 0.45, v: 0.6 },
+    { t: 0.5, f: 920, s: 0.45, v: 0.6 },
+    { t: 1.0, f: 640, s: 0.45, v: 0.6 },
+    { t: 1.5, f: 920, s: 0.45, v: 0.6 },
+    { t: 2.0, f: 990, s: 0.5, v: 0.65 }
+  ],
+  kesintili: [
+    { t: 0.0, f: 980, s: 0.16, v: 0.55 },
+    { t: 0.26, f: 980, s: 0.16, v: 0.55 },
+    { t: 0.52, f: 980, s: 0.16, v: 0.55 },
+    { t: 0.78, f: 980, s: 0.16, v: 0.55 },
+    { t: 1.04, f: 980, s: 0.16, v: 0.55 },
+    { t: 1.3, f: 980, s: 0.16, v: 0.55 }
+  ]
+};
+function alarmSesiCal(pattern) {
   try {
+    alarmSesiDurdur();
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') audioCtx.resume();
-    const t = audioCtx.currentTime;
-    [880, 660].forEach((freq, i) => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.001, t + i * 0.3);
-      gain.gain.exponentialRampToValueAtTime(0.6, t + i * 0.3 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.3 + 0.28);
-      osc.connect(gain).connect(audioCtx.destination);
-      osc.start(t + i * 0.3);
-      osc.stop(t + i * 0.3 + 0.3);
-    });
+    const ctx = audioCtx;
+    const desen = ALARM_DESENLERI[pattern] || ALARM_DESENLERI.uzun;
+    const son = desen[desen.length - 1];
+    const desenSure = son.t + son.s + 0.45;
+    let dongu = 0;
+    let durduruldu = false;
+    let zamanlayici = null;
+    const oscler = [];
+
+    const tonCal = (bas, frekans, sure, vol) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = frekans;
+      gain.gain.setValueAtTime(0.0001, bas);
+      gain.gain.exponentialRampToValueAtTime(vol, bas + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, bas + sure);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(bas);
+      osc.stop(bas + sure + 0.05);
+      oscler.push(osc);
+    };
+
+    const donguCal = () => {
+      if (durduruldu) return;
+      const base = ctx.currentTime;
+      desen.forEach((n) => tonCal(base + n.t, n.f, n.s, n.v));
+      dongu++;
+      if (dongu < 8) {
+        zamanlayici = setTimeout(donguCal, desenSure * 1000);
+      }
+    };
+    donguCal();
+
+    alarmSesiStop = () => {
+      durduruldu = true;
+      if (zamanlayici) clearTimeout(zamanlayici);
+      oscler.forEach((o) => { try { o.stop(); } catch (e) {} });
+      oscler.length = 0;
+    };
+    setTimeout(() => alarmSesiDurdur(), 30000);
   } catch (e) {}
 }
 async function tarayiciBildirimGoster(title, body) {
@@ -659,7 +719,7 @@ function hastaSil(hastaId) {
     aktifHasta = null;
     aktifIlaclar = [];
     aktifAlindi = {};
-    aktifAyarlar = { onerakDk: 15, erteleDk: 5, duzenButonlari: false };
+    aktifAyarlar = { onerakDk: 15, erteleDk: 5, duzenButonlari: false, alarmSesi: 'uzun' };
   }
   firebasePut('/patients/' + hastaId, null);
   firebaseRegistryPush();
@@ -748,6 +808,7 @@ function ayarlarPaneliniAc() {
   byId('ertele-select').value = String(aktifAyarlar.erteleDk);
   byId('onerak-deger').textContent = aktifAyarlar.onerakDk + ' dk';
   byId('duzen-toggle').checked = !!aktifAyarlar.duzenButonlari;
+  byId('alarmsesi-select').value = aktifAyarlar.alarmSesi || 'uzun';
   const guvenVar = !!aktifHasta.pin && yukle(hastaGuvenKey(aktifHastaId), false);
   byId('pin-guven-alani').classList.toggle('hidden', !guvenVar);
   modalAc('modal-ayarlar');
@@ -756,6 +817,7 @@ function ayarlariKaydet() {
   aktifAyarlar.onerakDk = Number(byId('onerak-range').value);
   aktifAyarlar.erteleDk = Number(byId('ertele-select').value);
   aktifAyarlar.duzenButonlari = byId('duzen-toggle').checked;
+  aktifAyarlar.alarmSesi = byId('alarmsesi-select').value;
   kaydet(hastaAyarKey(aktifHastaId), aktifAyarlar);
   byId('onerak-deger').textContent = aktifAyarlar.onerakDk + ' dk';
   modalKapat('modal-ayarlar');
@@ -844,6 +906,7 @@ async function nativeDozBildirimleriniKur(hastaId) {
               title: 'İlaç zamanı: ' + ilac.ad,
               body: hasta.ad + ' · ' + saat + (ilac.doz ? ' · ' + ilac.doz : ''),
               schedule: { at: new Date(zaman) },
+              sound: 'alarm_takip',
               actionTypeId: 'alindi',
               extra: { hastaId: hasta.id, ilacId: ilac.id, saat: saat, key: key }
             });

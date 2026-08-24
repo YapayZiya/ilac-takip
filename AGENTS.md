@@ -29,8 +29,9 @@ senkronizasyon için arka planda (bloklamadan) kullanılır.
 ## Zorunlu Komutlar
 
 ```bash
-npm install          # bağımlılıkları kur (postinstall: scripts/copy-icon.cjs çalışır)
-npm run build        # build:css (tailwindcss) + build:js (esbuild)
+npm install          # bağımlılıkları kur (postinstall: copy-icon + generate-alarm-sound çalışır)
+npm run build        # build:sound (alarm.wav) + build:css (tailwindcss) + build:js (esbuild)
+npm run build:sound  # node scripts/generate-alarm-sound.cjs → www/alarm.wav
 npm run build:css    # tailwindcss -i ./src/tailwind-input.css -o ./www/tailwind.css --minify
 npm run build:js     # esbuild app.js --bundle --minify ... --outfile=www/app.bundle.js
 npx cap sync android # web asset'lerini native projeye kopyala
@@ -98,6 +99,7 @@ ilac-takip/
 │   ├── sw.js                 # Service worker (APP_SHELL önbelleği)
 │   ├── tailwind.css          # BUILD ÇIKTISI
 │   ├── app.bundle.js         # BUILD ÇIKTISI
+│   ├── alarm.wav             # BUILD ÇIKTISI (scripts/generate-alarm-sound.cjs üretir)
 │   └── icons/                # postinstall'da scripts/copy-icon.cjs üretir
 ├── plugins/
 │   └── exact-alarm/          # Özel Capacitor plugin (JS + Android Java)
@@ -105,7 +107,8 @@ ilac-takip/
 │       ├── package.json      # capacitor.android.src → android
 │       └── android/          # build.gradle (Java 21) + ExactAlarmPlugin.java
 ├── scripts/
-│   └── copy-icon.cjs         # PNG ikon üretici (postinstall + android:icon)
+│   ├── copy-icon.cjs         # PNG ikon üretici (postinstall + android:icon)
+│   └── generate-alarm-sound.cjs # alarm.wav üretici (postinstall + build:sound)
 ├── .github/workflows/
 │   └── build-android.yml     # CI: build → cap add/sync → izin enjeksiyonu → APK
 ├── capacitor.config.json     # appId com.ilac.takip, webDir www
@@ -121,7 +124,7 @@ ilac_takip:hastalar           → [{ id, ad, pin }]
 ilac_takip:aktif              → hasta id (string)
 ilac_takip:ilac:{hastaId}     → [{ id, ad, doz, times: ["09:00","20:00"], updatedAt }]
 ilac_takip:alindi:{hastaId}   → { "{ilacId}|{YYYY-MM-DD}|{saat}": timestamp }
-ilac_takip:ayar:{hastaId}     → { onerakDk: 15, erteleDk: 5, duzenButonlari: false }
+ilac_takip:ayar:{hastaId}     → { onerakDk: 15, erteleDk: 5, duzenButonlari: false, alarmSesi: 'uzun' }
 ilac_takip:rapor:{hastaId}    → { "YYYY-MM-DD": { planlanan, alinan, geciken, detay: [{ilac, saat, alindi, alindiSaat}] } } (son 7 gün)
 ilac_takip:noti               → { [bildirimId]: "{ilacId}|{tarih}|{saat}" } (native eşleme)
 ilac_takip:ozet:{hastaId}     → son gösterilen özet tarihi
@@ -133,6 +136,9 @@ ilac_takip:battery-asked      → pil optimizasyonu muafiyeti istendi mi (flag)
 
 `duzenButonlari` (varsayılan `false`): ilaç kartlarında Düzenle/Sil butonlarının gösterilip
 gösterilmeyeceğini kontrol eder — Ayarlar panelindeki checkbox ile değiştirilir.
+`alarmSesi` (varsayılan `'uzun'`): web alarm sesi deseni — `'uzun'` (siren), `'kesintili'` (zil),
+`'kisa'` (bip). `ALARM_DESENLERI` sabitinde tanımlıdır; `alarmSesiCal(pattern)` Web Audio ile
+çalar, `alarmSesiDurdur()` keser.
 `ilac_takip:rapor:{hastaId}`: gün sonu raporları; kayıt sırasında 7 günden eski kayıtlar
 silinir (tarih anahtarları `YYYY-MM-DD` string karşılaştırmasıyla kesilir).
 `ilac_takip:guven:{hastaId}`: PIN doğru girilip "Bu telefona güven" işaretlenince `true`
@@ -208,7 +214,8 @@ kaydetme/silme) başarı/başarısızlığa göre toast gösterir.
   `hastaAcildi()` ile `ilac_takip:acilan` listesini günceller; `nativeDozBildirimleriniKur()`
   hasta belirtilmeden çağrıldığında yalnızca bu listedekileri planlar (hiç açılmamış hastanın
   bildirimi gelmez)
-- Her CRUD/alındı sonrası `nativeDozBildirimleriniKur()` ile bugün + yarın yeniden kurulur
+- Her CRUD/alındı sonrası `nativeDozBildirimleriniKur()` ile bugün + yarın yeniden kurulur;
+  bildirimler `sound: 'alarm_takip'` ile planlanır (CI'da `www/alarm.wav` → `res/raw/alarm_takip.wav`)
 - `registerActionTypes` → "Alındı ✓" aksiyonu; `localNotificationActionPerformed` dinleyicisi
   `evt.actionId === 'alindi'` ise (aksiyon butonuna basıldıysa) `ilacAlindi()` çağırır —
   bildirim gövdesine dokunmak (`actionId === 'tap'`) dozu işaretlemez
