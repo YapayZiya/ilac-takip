@@ -116,6 +116,7 @@ let alarmKuyrugu = [];
 let ertelenenler = {};
 let alarmAcikKey = null;
 let onayCallback = null;
+let bildirimAcCallback = null;
 let sonTarihKey = bugunKey();
 
 function hastaDurum(hastaId) {
@@ -216,6 +217,11 @@ function pinDogrula() {
     }
     pinHasta = null;
     hastaPaneliAc(id);
+    if (typeof bildirimAcCallback === 'function') {
+      const cb = bildirimAcCallback;
+      bildirimAcCallback = null;
+      cb();
+    }
   } else {
     byId('pin-hata').classList.remove('hidden');
     byId('pin-input').value = '';
@@ -352,6 +358,16 @@ function ilacKartlariniCiz() {
 }
 
 /* ============ ALARM MOTORU (15 SN) ============ */
+function alarmKuyrukEkle(hastaId, ilacId, saat, key) {
+  const hasta = hastalar.find((h) => h.id === hastaId);
+  if (!hasta) return;
+  const durum = hastaDurum(hasta.id);
+  const ilac = durum.ilaclar.find((m) => m.id === ilacId);
+  if (!ilac || durum.alindi[key]) return;
+  if (alarmKuyrugu.some((e) => e.key === key)) return;
+  if (alarmAcikKey === key) return;
+  alarmKuyrugu.push({ hastaId: hasta.id, ilac: ilac, saat: saat, key: key });
+}
 function alarmKontrolu() {
   if (byId('modal-alarm').classList.contains('hidden') === false) return;
   if (aktifEkran !== 'ekran-hasta' || !aktifHastaId) return;
@@ -958,6 +974,11 @@ async function nativeIzinleriAyarla() {
 }
 
 /* ============ FIREBASE ============ */
+async function firebaseDoseKontrol(hastaId, key) {
+  const cloud = await firebaseGet('/patients/' + hastaId + '/done');
+  if (cloud && typeof cloud === 'object' && cloud[key]) return true;
+  return false;
+}
 async function firebaseGet(path, timeoutMs) {
   if (!navigator.onLine) return null;
   const ms = timeoutMs || 6000;
@@ -1166,16 +1187,62 @@ function olaylariBagla() {
     if (e.key === 'Escape') tümModallariKapat();
   });
 
-  if (isNative) {
-    try {
-      LocalNotifications.addListener('localNotificationActionPerformed', (evt) => {
-        const not = evt.notification;
-        if (evt.actionId === 'alindi' && not && not.extra) {
-          ilacAlindi(not.extra.hastaId, not.extra.ilacId, not.extra.saat, Date.now());
-        }
-      });
-    } catch (e) { console.warn('Bildirim aksiyon dinleyicisi kurulamadı', e); }
-  }
+   if (isNative) {
+     try {
+       const bildirimAlarmGoster = (hastaId, ilacId, saat, key) => () => {
+         setTimeout(() => {
+           if (!byId('modal-alarm') || byId('modal-alarm').classList.contains('hidden') === false) return;
+           alarmKuyrukEkle(hastaId, ilacId, saat, key);
+           alarmSıradakiniGoster();
+         }, 100);
+       };
+       LocalNotifications.addListener('localNotificationActionPerformed', async (evt) => {
+         const not = evt.notification;
+         if (!not || !not.extra) {
+           if (evt.actionId === 'tap') {
+             gosterEkran('ekran-hastalar');
+           }
+           return;
+         }
+         const key = not.extra.key;
+         const hastaId = not.extra.hastaId;
+         const ilacId = not.extra.ilacId;
+         const saat = not.extra.saat;
+         const hasta = hastalar.find((h) => h.id === hastaId);
+         if (!hasta) return;
+         const zatenAlindi = await firebaseDoseKontrol(hastaId, key);
+         const acVeAlarm = () => {
+           hastaPaneliAc(hastaId);
+           bildirimAlarmGoster(hastaId, ilacId, saat, key)();
+         };
+         if (zatenAlindi) {
+           toast('Bu doz zaten başka bir cihazda alındı');
+           if (hasta.pin && !yukle(hastaGuvenKey(hastaId), false)) {
+             bildirimAcCallback = acVeAlarm;
+             pinEkraniniAc(hasta);
+           } else {
+             acVeAlarm();
+           }
+           return;
+         }
+         if (evt.actionId === 'alindi') {
+           if (hasta.pin && !yukle(hastaGuvenKey(hastaId), false)) {
+             bildirimAcCallback = () => ilacAlindi(hastaId, ilacId, saat, Date.now());
+             pinEkraniniAc(hasta);
+           } else {
+             ilacAlindi(hastaId, ilacId, saat, Date.now());
+           }
+         } else if (evt.actionId === 'tap' || evt.actionId === 'alkak') {
+           if (hasta.pin && !yukle(hastaGuvenKey(hastaId), false)) {
+             bildirimAcCallback = acVeAlarm;
+             pinEkraniniAc(hasta);
+           } else {
+             acVeAlarm();
+           }
+         }
+       });
+     } catch (e) { console.warn('Bildirim aksiyon dinleyicisi kurulamadı', e); }
+   }
 }
 
 /* ============ AÇILIŞ ============ */
